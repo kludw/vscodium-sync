@@ -35,4 +35,4 @@ VSCodium Sync keeps your global `settings.json` and installed extensions in sync
 
 ---
 
-*Published from this `docs/` folder via GitHub Pages (Jekyll, `jekyll-theme-minimal`). Pages here link to each other with `.html` extensions to match Jekyll's output; browsing this same folder directly on GitHub, use the `.md` files instead (e.g. [`README.md`](https://github.com/kludw/vscodium-sync)).*
+*Published from this `docs/` folder via GitHub Pages (Jekyll, `jekyll-theme-midnight`). Pages here link to each other with `.html` extensions to match Jekyll's output; browsing this same folder directly on GitHub, use the `.md` files instead (e.g. [`README.md`](https://github.com/kludw/vscodium-sync)).*

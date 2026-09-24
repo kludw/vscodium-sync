@@ -29,7 +29,7 @@ This is not the bun you know, API might have changed since your training. Refer 
 
 ## Docs
 
-Docs live in `docs/` (`docs/index.md` is the entry point) and are published live via GitHub Pages (Jekyll, `jekyll-theme-minimal`) at https://kludw.github.io/vscodium-sync/. `README.md` is the GitHub-facing landing page and links into `docs/`. `CHANGELOG.md` (root, Keep a Changelog format) is the version list. `docs/adr/` holds Architecture Decision Records.
+Docs live in `docs/` (`docs/index.md` is the entry point) and are published live via GitHub Pages (Jekyll, `jekyll-theme-midnight`) at https://kludw.github.io/vscodium-sync/. `README.md` is the GitHub-facing landing page and links into `docs/`. `CHANGELOG.md` (root, Keep a Changelog format) is the version list. `docs/adr/` holds Architecture Decision Records.
 
 1. Behaviour changes (sync triggers, conflict rule, notifications, UI, auth) → update the matching page in `docs/`, same PR, plus a `CHANGELOG.md` entry under `[Unreleased]`.
 2. New module or moved file → update `docs/architecture.md`'s module map.

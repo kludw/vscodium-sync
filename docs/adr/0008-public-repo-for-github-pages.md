@@ -19,5 +19,5 @@ Make the repository public, then enable GitHub Pages sourced from `docs/` on `ma
 ## Consequences
 
 - The source code is now public, not just the documentation — this is a repository-wide visibility change, not a docs-only toggle.
-- The docs site is live at <https://kludw.github.io/vscodium-sync/>, built by GitHub's Jekyll pipeline with `jekyll-theme-minimal`.
+- The docs site is live at <https://kludw.github.io/vscodium-sync/>, built by GitHub's Jekyll pipeline with `jekyll-theme-midnight` (originally `jekyll-theme-minimal`; switched for a dark theme — any of GitHub Pages' whitelisted themes works the same way, a one-line `theme:` change in `docs/_config.yml`, no infrastructure change).
 - Every page under `docs/` needs YAML front matter to be picked up by Jekyll at all, and internal links between docs pages use `.html` (Jekyll's default output extension) rather than `.md` — codified as an ongoing rule in `CLAUDE.md` for anyone adding a new page. Links from `README.md` into `docs/` keep the `.md` extension, since those are read via GitHub's own blob viewer (outside the Pages build), not the published site.
