@@ -21,7 +21,7 @@ import {
 } from "./sync/engine";
 import type { ExtensionsDiff } from "./sync/extensions";
 
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 15_000;
 const WATCH_DEBOUNCE_MS = 500;
 const GIST_ID_KEY = "vscodiumSync.gistId";
 const GIST_URL_KEY = "vscodiumSync.gistUrl";

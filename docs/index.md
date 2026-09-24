@@ -10,7 +10,7 @@ VSCodium Sync keeps your global `settings.json` and installed extensions in sync
 ## What it does
 
 - **Two-way sync** of your global `settings.json` and installed extensions through a private GitHub gist.
-- **Auto sync, always on** — no toggle, no setting. Local changes push within half a second; remote changes are picked up by polling every 60 seconds.
+- **Auto sync, always on** — no toggle, no setting. Local changes push within half a second; remote changes are picked up by polling every 15 seconds.
 - **Zero-config pairing** — the first machine creates the gist, every other machine auto-discovers it by a marker filename. No gist ID to copy around.
 - **Last-write-wins conflict resolution** by timestamp, so you're never blocked waiting on a merge prompt.
 - **Extensions mirror fully and install silently** — install or uninstall an extension on one machine and it happens on every other one too, with no confirmation prompt. See [Architecture Decision 0009](./adr/0009-sync-installed-extensions.html) for the trade-off this accepts.

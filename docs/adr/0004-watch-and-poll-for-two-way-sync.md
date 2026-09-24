@@ -15,11 +15,11 @@ title: "ADR 0004: Watch local file + poll gist for continuous two-way sync"
 
 ## Decision
 
-Option 2. This was the user's explicit choice. A `fs.watch` on `settings.json` triggers a push 500ms after the last detected change (debounced, so rapid edits collapse into one push); a 60-second `setInterval` polls the gist for a pull. A sync also runs once immediately on activation, and on demand via the "Sync Now" menu item.
+Option 2. This was the user's explicit choice. A `fs.watch` on `settings.json` triggers a push 500ms after the last detected change (debounced, so rapid edits collapse into one push); a 15-second `setInterval` polls the gist for a pull (originally 60s, shortened once the design was validated in practice). A sync also runs once immediately on activation, and on demand via the "Sync Now" menu item.
 
 ## Consequences
 
-- Remote changes made on another machine arrive within 60 seconds, without any action on this machine — real background sync.
-- A recurring `GET` gist call every 60 seconds even when idle. At one call per minute this is far under GitHub's authenticated rate limit; not a practical concern at this scale.
+- Remote changes made on another machine arrive within 15 seconds, without any action on this machine — real background sync.
+- A recurring `GET` gist call every 15 seconds even when idle — 4/minute, 240/hour. Still far under GitHub's authenticated rate limit (5,000/hour); not a practical concern at this scale.
 - Risk of an echo loop: a pull writes to `settings.json`, which the watcher would otherwise see as a local change and re-push. Guarded with a `writingLocally` flag in `src/extension.ts` that the watcher checks before scheduling a sync.
-- Polling interval (60s) and debounce (500ms) are hardcoded constants, not user-configurable — consistent with the "no config, plug and play" goal, at the cost of no way to tune them without editing the code.
+- Polling interval (15s) and debounce (500ms) are hardcoded constants, not user-configurable — consistent with the "no config, plug and play" goal, at the cost of no way to tune them without editing the code.

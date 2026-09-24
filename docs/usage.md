@@ -29,7 +29,7 @@ Auto sync is always on — there's no setting to turn it off:
 
 - **On activation** — one sync runs immediately when VSCodium starts.
 - **Local → remote**: a file watcher on `settings.json` triggers a sync 500ms after the last detected change (debounced, so rapid edits collapse into one push). Installing or uninstalling an extension triggers the same debounced sync.
-- **Remote → local**: a 60-second poll checks the gist for changes made elsewhere and pulls them down.
+- **Remote → local**: a 15-second poll checks the gist for changes made elsewhere and pulls them down.
 - **On demand**: the "Sync Now" menu item.
 
 ## Notifications

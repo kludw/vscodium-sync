@@ -32,7 +32,7 @@ On activation the extension will:
 
 1. Prompt you to sign in to GitHub (via VS Code's built-in GitHub auth provider, scoped to `gist`). This is a native VS Code sign-in flow — no token to paste in, nothing to configure.
 2. Look for an existing gist tagged as this extension's sync target. If one exists (e.g. you set this up on another machine already), it adopts it and pulls your settings. If not, it creates a new private gist from your current `settings.json`.
-3. Start watching your local `settings.json` for changes and polling the gist every 60 seconds — see [Usage](./usage.html) for the full behaviour.
+3. Start watching your local `settings.json` for changes and polling the gist every 15 seconds — see [Usage](./usage.html) for the full behaviour.
 
 ## Everyday commands
 
