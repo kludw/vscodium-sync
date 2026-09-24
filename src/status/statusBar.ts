@@ -21,7 +21,7 @@ export function createStatusBar(command: string): StatusBar {
 			item.tooltip = "VSCodium Sync: syncing…";
 		},
 		setSynced(atMs: number): void {
-			item.text = "$(check) Settings synced";
+			item.text = "$(check) VSCodium Sync";
 			item.tooltip = `VSCodium Sync: last synced ${new Date(atMs).toLocaleTimeString()}`;
 		},
 		setError(message: string): void {
