@@ -71,6 +71,8 @@ This is **last-write-wins** — the loser is silently overwritten, no merge, no 
 
 `computeExtensionDiff(currentContent, targetContent)` in `src/sync/extensions.ts` is a pure set difference between two JSON arrays of extension IDs — everything to install (in target, not current) and everything to uninstall (in current, not target). `src/extension.ts` supplies `currentContent` from `vscode.extensions.all` (filtered to exclude built-ins) and applies the resulting diff via `workbench.extensions.installExtension` / `workbench.extensions.uninstallExtension`, logging each attempt and continuing past individual failures.
 
+`readLocalExtensions()` (in `src/extension.ts`) serialises that list with `JSON.stringify(ids, null, 2)` — one extension ID per line — rather than a single-line array. It's still plain JSON (`computeExtensionDiff` parses it the same either way), but a single-line array is unreadable both in `vscodium-sync-extensions.json` on GitHub and in the View Diff editor described below, where every change would otherwise highlight the entire line.
+
 ## Where state lives
 
 Four fields — `gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `extensionsLastSyncedAtMs` — are persisted via `context.globalState` in `src/extension.ts`. This is VS Code's own per-machine extension storage (backed by a local SQLite database), and it is **never** written into `settings.json` or synced as a workspace/user setting. The gist's `vscodium-sync-settings.json` file is an exact mirror of `settings.json`, and `vscodium-sync-extensions.json` an exact mirror of the installed-extensions list — nothing is ever injected into either to track sync state.

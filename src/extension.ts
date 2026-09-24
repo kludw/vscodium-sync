@@ -237,7 +237,8 @@ function readLocalExtensions(): string {
 		.filter((extension) => !isBuiltinExtension(extension))
 		.map((extension) => extension.id)
 		.sort();
-	return JSON.stringify(ids);
+	// One per line: a single-line array is unreadable in the gist file and in the diff view.
+	return JSON.stringify(ids, null, 2);
 }
 
 async function applyExtensionsDiff(

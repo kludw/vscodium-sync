@@ -23,6 +23,7 @@ Notable changes to this project, following [Keep a Changelog](https://keepachang
 ### Changed
 
 - Standardised notifications: settings and extensions now go through the exact same flow (`notifySynced`) — same message shape, same "View Diff" action, same before/after diff editor. Extensions previously got a different, count-only notification with a "Show Log" action instead of a diff; that's gone in favour of one consistent behaviour, documented as a single flow in [Usage](https://kludw.github.io/vscodium-sync/usage.html#notifications).
+- The synced extensions list is now one ID per line (`JSON.stringify(ids, null, 2)`) instead of a single-line array, in both `vscodium-sync-extensions.json` on GitHub and the View Diff editor — a one-line array made every change highlight the whole line.
 
 ### Fixed
 
