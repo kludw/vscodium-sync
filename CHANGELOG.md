@@ -16,5 +16,7 @@ Notable changes to this project, following [Keep a Changelog](https://keepachang
 - `VSCodium Sync` output channel logging sign-in, sync results, and errors.
 - Test suite with 100% function/line coverage on the pure sync core (`github/client.ts`, `sync/conflict.ts`, `sync/engine.ts`, `settings/path.ts`).
 - Documentation site published via GitHub Pages: <https://kludw.github.io/vscodium-sync/>
+- Version list: this changelog.
+- Architecture Decision Records under `docs/adr/`, covering the auth method, sync scope, conflict resolution, sync triggers, gist discovery, the pure-core/glue split, and the status bar UI.
 
 [Unreleased]: https://github.com/kludw/vscodium-sync/commits/master

@@ -20,6 +20,7 @@ Published at **[kludw.github.io/vscodium-sync](https://kludw.github.io/vscodium-
 - [Architecture](docs/architecture.md)
 - [Testing](docs/testing.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Architecture Decisions (ADRs)](docs/adr/index.md)
 - [Changelog](CHANGELOG.md)
 
 ## Development

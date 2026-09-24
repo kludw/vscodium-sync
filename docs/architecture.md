@@ -4,6 +4,8 @@ title: Architecture
 
 # Architecture
 
+This page describes *how* the pieces fit together. For *why* each significant choice was made — the alternatives considered and the trade-offs accepted — see the [Architecture Decision Records](./adr/index.html).
+
 ## Module map
 
 The codebase is split into a **pure, unit-tested core** and a **thin VS Code glue layer**. Only the glue layer imports `vscode`.

@@ -29,6 +29,7 @@ Only `settings.json` (global user settings) is synced — not keybindings, snipp
 | [Architecture](./architecture.html) | Module map, sync algorithm, conflict resolution rules |
 | [Testing](./testing.html) | What's covered, what's deliberately not, and why |
 | [Troubleshooting](./troubleshooting.html) | Common issues and how to read the sync log |
+| [Architecture Decisions](./adr/index.html) | Why it's built this way — the alternatives considered and trade-offs accepted |
 | [Changelog](https://github.com/kludw/vscodium-sync/blob/master/CHANGELOG.md) | What's changed, release by release |
 
 ---
