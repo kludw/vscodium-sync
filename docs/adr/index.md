@@ -11,13 +11,14 @@ An ADR records one significant architecture decision: the context that forced it
 | # | Decision | Status |
 | --- | --- | --- |
 | [0001](./0001-github-built-in-authentication.html) | Use VS Code's built-in GitHub authentication provider | Accepted |
-| [0002](./0002-settings-json-only-scope.html) | Limit v1 sync scope to `settings.json` only | Accepted |
+| [0002](./0002-settings-json-only-scope.html) | Limit v1 sync scope to `settings.json` only | Extended by 0009 |
 | [0003](./0003-last-write-wins-conflict-resolution.html) | Last-write-wins conflict resolution by timestamp | Accepted |
 | [0004](./0004-watch-and-poll-for-two-way-sync.html) | Watch local file + poll gist for continuous two-way sync | Accepted |
 | [0005](./0005-zero-config-gist-discovery.html) | Zero-config gist discovery by marker filename | Accepted |
 | [0006](./0006-pure-core-vscode-glue-split.html) | Separate pure sync core from VS Code glue, to drive the test boundary | Accepted |
 | [0007](./0007-status-bar-menu-over-webview.html) | Status bar item + quick-pick menu instead of a custom webview panel | Accepted |
 | [0008](./0008-public-repo-for-github-pages.html) | Publish docs via GitHub Pages, making the repository public | Accepted |
+| [0009](./0009-sync-installed-extensions.html) | Sync installed extensions (full mirror, silent install) | Accepted |
 
 ## When to add one
 

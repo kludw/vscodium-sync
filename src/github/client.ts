@@ -1,6 +1,7 @@
 const API_BASE = "https://api.github.com";
 
-export const GIST_FILENAME = "vscodium-sync-settings.json";
+export const SETTINGS_FILENAME = "vscodium-sync-settings.json";
+export const EXTENSIONS_FILENAME = "vscodium-sync-extensions.json";
 const GIST_DESCRIPTION =
 	"VSCodium Sync settings (managed by the VSCodium Sync extension)";
 
@@ -8,7 +9,13 @@ export interface GistInfo {
 	id: string;
 	updatedAtMs: number;
 	htmlUrl: string;
-	content: string;
+	settingsContent: string | undefined;
+	extensionsContent: string | undefined;
+}
+
+export interface GistFilesPatch {
+	settings?: string;
+	extensions?: string;
 }
 
 interface RawGistFile {
@@ -49,8 +56,20 @@ function toGistInfo(gist: RawGist): GistInfo {
 		id: gist.id,
 		updatedAtMs: Date.parse(gist.updated_at),
 		htmlUrl: gist.html_url,
-		content: gist.files[GIST_FILENAME].content,
+		settingsContent: gist.files[SETTINGS_FILENAME]?.content,
+		extensionsContent: gist.files[EXTENSIONS_FILENAME]?.content,
 	};
+}
+
+function toFilesPayload(
+	patch: GistFilesPatch,
+): Record<string, { content: string }> {
+	const files: Record<string, { content: string }> = {};
+	if (patch.settings !== undefined)
+		files[SETTINGS_FILENAME] = { content: patch.settings };
+	if (patch.extensions !== undefined)
+		files[EXTENSIONS_FILENAME] = { content: patch.extensions };
+	return files;
 }
 
 export async function findSyncGist(
@@ -61,7 +80,7 @@ export async function findSyncGist(
 		id: string;
 		files: Record<string, unknown>;
 	}>;
-	const match = gists.find((gist) => GIST_FILENAME in gist.files);
+	const match = gists.find((gist) => SETTINGS_FILENAME in gist.files);
 	if (!match) return undefined;
 	return getGist(token, match.id);
 }
@@ -76,14 +95,18 @@ export async function getGist(
 
 export async function createSyncGist(
 	token: string,
-	content: string,
+	settingsContent: string,
+	extensionsContent: string,
 ): Promise<GistInfo> {
 	const response = await githubRequest(token, "/gists", {
 		method: "POST",
 		body: JSON.stringify({
 			description: GIST_DESCRIPTION,
 			public: false,
-			files: { [GIST_FILENAME]: { content } },
+			files: toFilesPayload({
+				settings: settingsContent,
+				extensions: extensionsContent,
+			}),
 		}),
 	});
 	return toGistInfo((await response.json()) as RawGist);
@@ -92,11 +115,11 @@ export async function createSyncGist(
 export async function updateSyncGist(
 	token: string,
 	gistId: string,
-	content: string,
+	patch: GistFilesPatch,
 ): Promise<GistInfo> {
 	const response = await githubRequest(token, `/gists/${gistId}`, {
 		method: "PATCH",
-		body: JSON.stringify({ files: { [GIST_FILENAME]: { content } } }),
+		body: JSON.stringify({ files: toFilesPayload(patch) }),
 	});
 	return toGistInfo((await response.json()) as RawGist);
 }

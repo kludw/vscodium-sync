@@ -11,26 +11,29 @@ import { dirname } from "node:path";
 import * as vscode from "vscode";
 import { resolveSettingsPath } from "./settings/path";
 import { showStatusMenu } from "./status/menu";
-import { notifyCreated, notifySynced } from "./status/notifications";
+import {
+	notifyCreated,
+	notifyExtensionsChanged,
+	notifySynced,
+} from "./status/notifications";
 import { createStatusBar } from "./status/statusBar";
 import {
 	performSync,
-	type SyncResult,
 	type SyncState,
 	type SyncStateStore,
 } from "./sync/engine";
+import type { ExtensionsDiff } from "./sync/extensions";
 
 const POLL_INTERVAL_MS = 60_000;
 const WATCH_DEBOUNCE_MS = 500;
 const GIST_ID_KEY = "vscodiumSync.gistId";
 const GIST_URL_KEY = "vscodiumSync.gistUrl";
-const LAST_SYNCED_AT_KEY = "vscodiumSync.lastSyncedAtMs";
+const SETTINGS_LAST_SYNCED_AT_KEY = "vscodiumSync.settingsLastSyncedAtMs";
+const EXTENSIONS_LAST_SYNCED_AT_KEY = "vscodiumSync.extensionsLastSyncedAtMs";
 const SHOW_STATUS_COMMAND = "vscodiumSync.showStatus";
 
 const PULL_MESSAGE = "VSCodium Sync: settings were updated.";
 const PULL_DIFF_TITLE = "settings.json: before ↔ after pull";
-const PULL_RESULTS: SyncResult[] = ["pull", "init-pull"];
-
 const PUSH_MESSAGE = "VSCodium Sync: settings synced.";
 const PUSH_DIFF_TITLE = "settings.json: before ↔ after push";
 const CREATED_MESSAGE = "VSCodium Sync: settings sync enabled.";
@@ -63,48 +66,37 @@ export async function activate(
 	context.subscriptions.push(statusBar);
 
 	let writingLocally = false;
+	let extensionsChangedAtMs = Date.now();
 
 	const sync = async (): Promise<void> => {
 		statusBar.setSyncing();
 		log.info("Sync starting…");
-		const localContentBeforeSync = readFileSync(settingsPath, "utf8");
+		const localSettingsBeforeSync = readFileSync(settingsPath, "utf8");
 		try {
 			const outcome = await performSync({
 				token: session.accessToken,
 				store,
-				readLocal: () => readFileSync(settingsPath, "utf8"),
-				writeLocal: (content) => {
-					writingLocally = true;
-					writeFileSync(settingsPath, content, "utf8");
+				settings: {
+					readLocal: () => readFileSync(settingsPath, "utf8"),
+					writeLocal: (content) => {
+						writingLocally = true;
+						writeFileSync(settingsPath, content, "utf8");
+					},
+					getLocalChangedAtMs: () => statSync(settingsPath).mtimeMs,
 				},
-				getLocalMtimeMs: () => statSync(settingsPath).mtimeMs,
+				extensions: {
+					readLocal: readLocalExtensions,
+					applyDiff: (diff) => applyExtensionsDiff(diff, log),
+					getLocalChangedAtMs: () => extensionsChangedAtMs,
+				},
 			});
-			log.info(`Sync finished: ${outcome.result}.`);
+			log.info(
+				`Sync finished: settings=${outcome.settings.action}, extensions=${outcome.extensions.action}` +
+					(outcome.linked ? ` (linked: ${outcome.linked}).` : "."),
+			);
 			statusBar.setSynced(Date.now());
 
-			const logError = (message: string) => log.error(message);
-
-			if (PULL_RESULTS.includes(outcome.result)) {
-				log.info("Settings pulled from gist, notifying user.");
-				void notifySynced({
-					message: PULL_MESSAGE,
-					diffTitle: PULL_DIFF_TITLE,
-					beforeContent: localContentBeforeSync,
-					settingsPath,
-					logError,
-				});
-			} else if (outcome.result === "push") {
-				log.info("Settings pushed to gist, notifying user.");
-				void notifySynced({
-					message: PUSH_MESSAGE,
-					diffTitle: PUSH_DIFF_TITLE,
-					beforeContent: outcome.remoteContentBeforePush ?? "",
-					settingsPath,
-					logError,
-				});
-			} else if (outcome.result === "init-push") {
-				notifyCreated(CREATED_MESSAGE);
-			}
+			notifyOutcome(outcome, localSettingsBeforeSync, settingsPath, log);
 		} catch (error) {
 			const message = (error as Error).message;
 			log.error(`Sync failed: ${message}`);
@@ -126,14 +118,24 @@ export async function activate(
 	await sync();
 
 	let debounceHandle: ReturnType<typeof setTimeout> | undefined;
+	const scheduleSync = () => {
+		clearTimeout(debounceHandle);
+		debounceHandle = setTimeout(sync, WATCH_DEBOUNCE_MS);
+	};
+
 	const watcher = watch(settingsPath, () => {
 		if (writingLocally) {
 			writingLocally = false;
 			return;
 		}
 		log.debug("Local settings.json changed, scheduling sync.");
-		clearTimeout(debounceHandle);
-		debounceHandle = setTimeout(sync, WATCH_DEBOUNCE_MS);
+		scheduleSync();
+	});
+
+	const extensionsListener = vscode.extensions.onDidChange(() => {
+		extensionsChangedAtMs = Date.now();
+		log.debug("Installed extensions changed, scheduling sync.");
+		scheduleSync();
 	});
 
 	const pollHandle = setInterval(() => {
@@ -141,7 +143,7 @@ export async function activate(
 		void sync();
 	}, POLL_INTERVAL_MS);
 
-	context.subscriptions.push({
+	context.subscriptions.push(extensionsListener, {
 		dispose: () => {
 			watcher.close();
 			clearInterval(pollHandle);
@@ -152,10 +154,88 @@ export async function activate(
 
 export function deactivate(): void {}
 
+function notifyOutcome(
+	outcome: Awaited<ReturnType<typeof performSync>>,
+	localSettingsBeforeSync: string,
+	settingsPath: string,
+	log: vscode.LogOutputChannel,
+): void {
+	const logError = (message: string) => log.error(message);
+
+	if (outcome.linked === "created") {
+		notifyCreated(CREATED_MESSAGE);
+	} else if (outcome.settings.action === "pull") {
+		void notifySynced({
+			message: PULL_MESSAGE,
+			diffTitle: PULL_DIFF_TITLE,
+			beforeContent: localSettingsBeforeSync,
+			settingsPath,
+			logError,
+		});
+	} else if (outcome.settings.action === "push") {
+		void notifySynced({
+			message: PUSH_MESSAGE,
+			diffTitle: PUSH_DIFF_TITLE,
+			beforeContent: outcome.settings.remoteContentBeforePush ?? "",
+			settingsPath,
+			logError,
+		});
+	}
+
+	if (outcome.extensions.diff) {
+		notifyExtensionsChanged(outcome.extensions.diff, () => log.show());
+	}
+}
+
 function ensureSettingsFileExists(settingsPath: string): void {
 	if (existsSync(settingsPath)) return;
 	mkdirSync(dirname(settingsPath), { recursive: true });
 	writeFileSync(settingsPath, "{}\n", "utf8");
+}
+
+function isBuiltinExtension(extension: vscode.Extension<unknown>): boolean {
+	// VS Code marks its bundled extensions this way at runtime; there's no typed API for it.
+	return (extension.packageJSON as { isBuiltin?: boolean }).isBuiltin === true;
+}
+
+function readLocalExtensions(): string {
+	const ids = vscode.extensions.all
+		.filter((extension) => !isBuiltinExtension(extension))
+		.map((extension) => extension.id)
+		.sort();
+	return JSON.stringify(ids);
+}
+
+async function applyExtensionsDiff(
+	diff: ExtensionsDiff,
+	log: vscode.LogOutputChannel,
+): Promise<void> {
+	for (const id of diff.toInstall) {
+		try {
+			await vscode.commands.executeCommand(
+				"workbench.extensions.installExtension",
+				id,
+			);
+			log.info(`Installed extension ${id}.`);
+		} catch (error) {
+			log.error(
+				`Failed to install extension ${id}: ${(error as Error).message}`,
+			);
+		}
+	}
+	for (const id of diff.toUninstall) {
+		try {
+			await vscode.commands.executeCommand(
+				"workbench.extensions.uninstallExtension",
+				id,
+			);
+			log.info(`Uninstalled extension ${id}.`);
+		} catch (error) {
+			log.error(
+				`Failed to uninstall extension ${id}: ${(error as Error).message}`,
+			);
+		}
+	}
 }
 
 function createGlobalStateStore(
@@ -166,7 +246,12 @@ function createGlobalStateStore(
 			return {
 				gistId: context.globalState.get<string>(GIST_ID_KEY),
 				gistUrl: context.globalState.get<string>(GIST_URL_KEY),
-				lastSyncedAtMs: context.globalState.get<number>(LAST_SYNCED_AT_KEY),
+				settingsLastSyncedAtMs: context.globalState.get<number>(
+					SETTINGS_LAST_SYNCED_AT_KEY,
+				),
+				extensionsLastSyncedAtMs: context.globalState.get<number>(
+					EXTENSIONS_LAST_SYNCED_AT_KEY,
+				),
 			};
 		},
 		async update(patch: Partial<SyncState>): Promise<void> {
@@ -176,10 +261,16 @@ function createGlobalStateStore(
 			if (patch.gistUrl !== undefined) {
 				await context.globalState.update(GIST_URL_KEY, patch.gistUrl);
 			}
-			if (patch.lastSyncedAtMs !== undefined) {
+			if (patch.settingsLastSyncedAtMs !== undefined) {
 				await context.globalState.update(
-					LAST_SYNCED_AT_KEY,
-					patch.lastSyncedAtMs,
+					SETTINGS_LAST_SYNCED_AT_KEY,
+					patch.settingsLastSyncedAtMs,
+				);
+			}
+			if (patch.extensionsLastSyncedAtMs !== undefined) {
+				await context.globalState.update(
+					EXTENSIONS_LAST_SYNCED_AT_KEY,
+					patch.extensionsLastSyncedAtMs,
 				);
 			}
 		},

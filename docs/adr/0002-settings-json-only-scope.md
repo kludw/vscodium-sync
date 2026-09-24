@@ -4,7 +4,7 @@ title: "ADR 0002: Limit v1 sync scope to settings.json only"
 
 # 0002: Limit v1 sync scope to `settings.json` only
 
-**Status:** Accepted (2026-09-24)
+**Status:** Accepted (2026-09-24) — scope extended by [0009](./0009-sync-installed-extensions.html), which adds the installed-extensions list
 
 ## Context
 

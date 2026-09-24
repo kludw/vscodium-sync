@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { GIST_FILENAME } from "../github/client";
+import { EXTENSIONS_FILENAME, SETTINGS_FILENAME } from "../github/client";
 import { performSync, type SyncState, type SyncStateStore } from "./engine";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -28,43 +28,116 @@ afterEach(() => {
 	(global.fetch as ReturnType<typeof mockFetch>).mockRestore?.();
 });
 
+function noGistState(): SyncState {
+	return {
+		gistId: undefined,
+		gistUrl: undefined,
+		settingsLastSyncedAtMs: undefined,
+		extensionsLastSyncedAtMs: undefined,
+	};
+}
+
 describe("performSync — no gist linked yet", () => {
-	test("adopts an existing remote gist by writing it locally", async () => {
+	test("adopts an existing gist with both files: pulls settings and diffs extensions", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>
-			jsonResponse([{ id: "found", files: { [GIST_FILENAME]: {} } }]),
+			jsonResponse([{ id: "found", files: { [SETTINGS_FILENAME]: {} } }]),
 		);
 		fetchSpy.mockImplementationOnce(async () =>
 			jsonResponse({
 				id: "found",
 				updated_at: "2024-01-01T00:00:00.000Z",
 				html_url: "https://gist.github.com/someone/found",
-				files: { [GIST_FILENAME]: { content: '{"remote":true}' } },
+				files: {
+					[SETTINGS_FILENAME]: { content: '{"remote":true}' },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
 			}),
 		);
 
-		const store = fakeStore({
-			gistId: undefined,
-			gistUrl: undefined,
-			lastSyncedAtMs: undefined,
-		});
-		let written: string | undefined;
+		const store = fakeStore(noGistState());
+		let writtenSettings: string | undefined;
 
 		const outcome = await performSync({
 			token: "tok",
 			store,
-			readLocal: () => '{"local":true}',
-			writeLocal: (content) => {
-				written = content;
+			settings: {
+				readLocal: () => '{"local":true}',
+				writeLocal: (content) => {
+					writtenSettings = content;
+				},
+				getLocalChangedAtMs: () => 0,
 			},
-			getLocalMtimeMs: () => 0,
+			extensions: {
+				readLocal: () => "[]",
+				applyDiff: async () => {},
+				getLocalChangedAtMs: () => 0,
+			},
 		});
 
-		expect(outcome.result).toBe("init-pull");
-		expect(written).toBe('{"remote":true}');
+		expect(outcome.linked).toBe("found");
+		expect(outcome.settings.action).toBe("pull");
+		expect(writtenSettings).toBe('{"remote":true}');
+		expect(outcome.extensions.action).toBe("pull");
+		expect(outcome.extensions.diff).toEqual({
+			toInstall: ["a.one"],
+			toUninstall: [],
+		});
 		expect(store.state.gistId).toBe("found");
 		expect(store.state.gistUrl).toBe("https://gist.github.com/someone/found");
-		expect(store.state.lastSyncedAtMs).toBeGreaterThan(0);
+	});
+
+	test("adopts an existing gist that predates extensions support: seeds the extensions file", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse([{ id: "old", files: { [SETTINGS_FILENAME]: {} } }]),
+		);
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "old",
+				updated_at: "2024-01-01T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/old",
+				files: { [SETTINGS_FILENAME]: { content: "{}" } },
+			}),
+		);
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "old",
+				updated_at: "2024-01-02T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/old",
+				files: {
+					[SETTINGS_FILENAME]: { content: "{}" },
+					[EXTENSIONS_FILENAME]: { content: '["local.one"]' },
+				},
+			}),
+		);
+
+		const store = fakeStore(noGistState());
+		let applied: unknown;
+
+		const outcome = await performSync({
+			token: "tok",
+			store,
+			settings: {
+				readLocal: () => "{}",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => 0,
+			},
+			extensions: {
+				readLocal: () => '["local.one"]',
+				applyDiff: async (diff) => {
+					applied = diff;
+				},
+				getLocalChangedAtMs: () => 0,
+			},
+		});
+
+		expect(outcome.extensions.action).toBe("push");
+		expect(applied).toBeUndefined();
+		const [, init] = fetchSpy.mock.calls[2] as [string, RequestInit];
+		const body = JSON.parse(init.body as string);
+		expect(body.files[EXTENSIONS_FILENAME].content).toBe('["local.one"]');
+		expect(body.files[SETTINGS_FILENAME]).toBeUndefined();
 	});
 
 	test("creates a new gist from local content when none exists remotely", async () => {
@@ -75,42 +148,71 @@ describe("performSync — no gist linked yet", () => {
 				id: "created",
 				updated_at: "2024-01-01T00:00:00.000Z",
 				html_url: "https://gist.github.com/someone/created",
-				files: { [GIST_FILENAME]: { content: '{"local":true}' } },
+				files: {
+					[SETTINGS_FILENAME]: { content: '{"local":true}' },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
 			}),
 		);
 
-		const store = fakeStore({
-			gistId: undefined,
-			gistUrl: undefined,
-			lastSyncedAtMs: undefined,
-		});
+		const store = fakeStore(noGistState());
 
 		const outcome = await performSync({
 			token: "tok",
 			store,
-			readLocal: () => '{"local":true}',
-			writeLocal: () => {
-				throw new Error(
-					"should not write local when creating from local content",
-				);
+			settings: {
+				readLocal: () => '{"local":true}',
+				writeLocal: () => {
+					throw new Error(
+						"should not write local when creating from local content",
+					);
+				},
+				getLocalChangedAtMs: () => 0,
 			},
-			getLocalMtimeMs: () => 0,
+			extensions: {
+				readLocal: () => '["a.one"]',
+				applyDiff: async () => {
+					throw new Error(
+						"should not apply a diff when creating from local content",
+					);
+				},
+				getLocalChangedAtMs: () => 0,
+			},
 		});
 
-		expect(outcome.result).toBe("init-push");
+		expect(outcome.linked).toBe("created");
+		expect(outcome.settings.action).toBe("push");
+		expect(outcome.extensions.action).toBe("push");
 		expect(store.state.gistId).toBe("created");
-		expect(store.state.gistUrl).toBe("https://gist.github.com/someone/created");
+		const [, init] = fetchSpy.mock.calls[1] as [string, RequestInit];
+		const body = JSON.parse(init.body as string);
+		expect(body.files[SETTINGS_FILENAME].content).toBe('{"local":true}');
+		expect(body.files[EXTENSIONS_FILENAME].content).toBe('["a.one"]');
 	});
 });
 
 describe("performSync — gist already linked", () => {
-	test("pushes local changes when only local changed since last sync", async () => {
+	function linkedState(overrides: Partial<SyncState> = {}): SyncState {
+		return {
+			gistId: "gist-1",
+			gistUrl: "https://gist.github.com/someone/gist-1",
+			settingsLastSyncedAtMs: Date.parse("2024-01-01T00:00:00.000Z"),
+			extensionsLastSyncedAtMs: Date.parse("2024-01-01T00:00:00.000Z"),
+			...overrides,
+		};
+	}
+
+	test("pushes settings only when only settings changed locally", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>
 			jsonResponse({
 				id: "gist-1",
 				updated_at: "2024-01-01T00:00:00.000Z",
-				files: { [GIST_FILENAME]: { content: "old" } },
+				html_url: "https://gist.github.com/someone/gist-1",
+				files: {
+					[SETTINGS_FILENAME]: { content: "old" },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
 			}),
 		);
 		fetchSpy.mockImplementationOnce(async () =>
@@ -118,63 +220,186 @@ describe("performSync — gist already linked", () => {
 				id: "gist-1",
 				updated_at: "2024-06-01T00:00:00.000Z",
 				html_url: "https://gist.github.com/someone/gist-1",
-				files: { [GIST_FILENAME]: { content: "new-local" } },
+				files: {
+					[SETTINGS_FILENAME]: { content: "new-local" },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
 			}),
 		);
 
-		const store = fakeStore({
-			gistId: "gist-1",
-			gistUrl: "https://gist.github.com/someone/gist-1",
-			lastSyncedAtMs: Date.parse("2024-01-01T00:00:00.000Z"),
-		});
+		const store = fakeStore(linkedState());
 
 		const outcome = await performSync({
 			token: "tok",
 			store,
-			readLocal: () => "new-local",
-			writeLocal: () => {
-				throw new Error("should not write local on a push");
+			settings: {
+				readLocal: () => "new-local",
+				writeLocal: () => {
+					throw new Error("should not write local on a push");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-05-01T00:00:00.000Z"),
 			},
-			getLocalMtimeMs: () => Date.parse("2024-05-01T00:00:00.000Z"),
+			extensions: {
+				readLocal: () => '["a.one"]',
+				applyDiff: async () => {
+					throw new Error("should not apply a diff when nothing changed");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
 		});
 
-		expect(outcome.result).toBe("push");
-		expect(outcome.remoteContentBeforePush).toBe("old");
+		expect(outcome.settings.action).toBe("push");
+		expect(outcome.extensions.action).toBe("none");
 		const [, init] = fetchSpy.mock.calls[1] as [string, RequestInit];
-		expect(init.method).toBe("PATCH");
+		const body = JSON.parse(init.body as string);
+		expect(body.files[SETTINGS_FILENAME].content).toBe("new-local");
+		expect(body.files[EXTENSIONS_FILENAME]).toBeUndefined();
 	});
 
-	test("pulls remote changes when only remote changed since last sync", async () => {
+	test("actually writes on a settings pull, and actually pushes on an extensions push, when content differs", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>
 			jsonResponse({
 				id: "gist-1",
 				updated_at: "2024-06-01T00:00:00.000Z",
 				html_url: "https://gist.github.com/someone/gist-1",
-				files: { [GIST_FILENAME]: { content: "new-remote" } },
+				files: {
+					[SETTINGS_FILENAME]: { content: "remote-new" },
+					[EXTENSIONS_FILENAME]: { content: '["old.ext"]' },
+				},
+			}),
+		);
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "gist-1",
+				updated_at: "2024-06-02T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/gist-1",
+				files: {
+					[SETTINGS_FILENAME]: { content: "remote-new" },
+					[EXTENSIONS_FILENAME]: { content: '["local.ext"]' },
+				},
 			}),
 		);
 
-		const store = fakeStore({
-			gistId: "gist-1",
-			gistUrl: "https://gist.github.com/someone/gist-1",
-			lastSyncedAtMs: Date.parse("2024-01-01T00:00:00.000Z"),
-		});
-		let written: string | undefined;
+		const store = fakeStore(
+			linkedState({
+				extensionsLastSyncedAtMs: Date.parse("2024-06-15T00:00:00.000Z"),
+			}),
+		);
+		let writtenSettings: string | undefined;
 
 		const outcome = await performSync({
 			token: "tok",
 			store,
-			readLocal: () => "unchanged",
-			writeLocal: (content) => {
-				written = content;
+			settings: {
+				readLocal: () => "local-unchanged",
+				writeLocal: (content) => {
+					writtenSettings = content;
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
 			},
-			getLocalMtimeMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			extensions: {
+				readLocal: () => '["local.ext"]',
+				applyDiff: async () => {
+					throw new Error("should not apply a diff on a push");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-07-01T00:00:00.000Z"),
+			},
 		});
 
-		expect(outcome.result).toBe("pull");
-		expect(outcome.remoteContentBeforePush).toBeUndefined();
-		expect(written).toBe("new-remote");
+		expect(outcome.settings.action).toBe("pull");
+		expect(writtenSettings).toBe("remote-new");
+		expect(outcome.extensions.action).toBe("push");
+		const [, init] = fetchSpy.mock.calls[1] as [string, RequestInit];
+		const body = JSON.parse(init.body as string);
+		expect(body.files[EXTENSIONS_FILENAME].content).toBe('["local.ext"]');
+		expect(body.files[SETTINGS_FILENAME]).toBeUndefined();
+	});
+
+	test("pulls and applies an extensions diff when only extensions changed remotely", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "gist-1",
+				updated_at: "2024-06-01T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/gist-1",
+				files: {
+					[SETTINGS_FILENAME]: { content: "same" },
+					[EXTENSIONS_FILENAME]: { content: '["new.ext"]' },
+				},
+			}),
+		);
+
+		const store = fakeStore(linkedState());
+		let applied: unknown;
+
+		const outcome = await performSync({
+			token: "tok",
+			store,
+			settings: {
+				readLocal: () => "same",
+				writeLocal: () => {
+					throw new Error("should not write local when settings unchanged");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
+			extensions: {
+				readLocal: () => "[]",
+				applyDiff: async (diff) => {
+					applied = diff;
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
+		});
+
+		expect(outcome.settings.action).toBe("none");
+		expect(outcome.extensions.action).toBe("pull");
+		expect(applied).toEqual({ toInstall: ["new.ext"], toUninstall: [] });
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+	});
+
+	test("skips the push and reports none when local content already matches remote", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "gist-1",
+				updated_at: "2024-01-01T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/gist-1",
+				files: {
+					[SETTINGS_FILENAME]: { content: "same" },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
+			}),
+		);
+
+		const store = fakeStore(
+			linkedState({
+				settingsLastSyncedAtMs: Date.parse("2024-01-15T00:00:00.000Z"),
+			}),
+		);
+
+		const outcome = await performSync({
+			token: "tok",
+			store,
+			settings: {
+				readLocal: () => "same",
+				writeLocal: () => {
+					throw new Error("should not write local");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-02-01T00:00:00.000Z"),
+			},
+			extensions: {
+				readLocal: () => '["a.one"]',
+				applyDiff: async () => {
+					throw new Error("should not apply a diff");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-20T00:00:00.000Z"),
+			},
+		});
+
+		expect(outcome.settings.action).toBe("none");
+		expect(outcome.extensions.action).toBe("none");
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
 	});
 
 	test("does nothing when neither side changed", async () => {
@@ -184,28 +409,41 @@ describe("performSync — gist already linked", () => {
 				id: "gist-1",
 				updated_at: "2024-01-01T00:00:00.000Z",
 				html_url: "https://gist.github.com/someone/gist-1",
-				files: { [GIST_FILENAME]: { content: "same" } },
+				files: {
+					[SETTINGS_FILENAME]: { content: "same" },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
 			}),
 		);
 
-		const lastSyncedAtMs = Date.parse("2024-02-01T00:00:00.000Z");
-		const store = fakeStore({
-			gistId: "gist-1",
-			gistUrl: "https://gist.github.com/someone/gist-1",
-			lastSyncedAtMs,
-		});
+		const store = fakeStore(
+			linkedState({
+				settingsLastSyncedAtMs: Date.parse("2024-02-01T00:00:00.000Z"),
+				extensionsLastSyncedAtMs: Date.parse("2024-02-01T00:00:00.000Z"),
+			}),
+		);
 
 		const outcome = await performSync({
 			token: "tok",
 			store,
-			readLocal: () => "same",
-			writeLocal: () => {
-				throw new Error("should not write local when nothing changed");
+			settings: {
+				readLocal: () => "same",
+				writeLocal: () => {
+					throw new Error("should not write local");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-15T00:00:00.000Z"),
 			},
-			getLocalMtimeMs: () => Date.parse("2024-01-15T00:00:00.000Z"),
+			extensions: {
+				readLocal: () => '["a.one"]',
+				applyDiff: async () => {
+					throw new Error("should not apply a diff");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-15T00:00:00.000Z"),
+			},
 		});
 
-		expect(outcome.result).toBe("none");
+		expect(outcome.settings.action).toBe("none");
+		expect(outcome.extensions.action).toBe("none");
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
 	});
 });

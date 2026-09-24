@@ -18,5 +18,6 @@ Notable changes to this project, following [Keep a Changelog](https://keepachang
 - Documentation site published via GitHub Pages: <https://kludw.github.io/vscodium-sync/>
 - Version list: this changelog.
 - Architecture Decision Records under `docs/adr/`, covering the auth method, sync scope, conflict resolution, sync triggers, gist discovery, the pure-core/glue split, and the status bar UI.
+- Installed-extensions sync: full two-way mirror (install/uninstall follows whichever side changed most recently), sharing the same gist, watcher/poll triggers, and last-write-wins rule as `settings.json`. Installs and uninstalls apply silently, with a notification and full logging of what changed — see [ADR 0009](https://kludw.github.io/vscodium-sync/adr/0009-sync-installed-extensions.html) for the trade-off this accepts.
 
 [Unreleased]: https://github.com/kludw/vscodium-sync/commits/master
