@@ -29,7 +29,7 @@ const SETTINGS_LAST_SYNCED_AT_KEY = "vscodiumSync.settingsLastSyncedAtMs";
 const EXTENSIONS_LAST_SYNCED_AT_KEY = "vscodiumSync.extensionsLastSyncedAtMs";
 const SHOW_STATUS_COMMAND = "vscodiumSync.showStatus";
 
-const CREATED_MESSAGE = "VSCodium Sync: settings sync enabled.";
+const CREATED_MESSAGE = "VSCodium Sync: sync enabled.";
 
 const SETTINGS_PULL_MESSAGE = "VSCodium Sync: settings were updated.";
 const SETTINGS_PULL_DIFF_TITLE = "settings.json: before ↔ after pull";

@@ -45,7 +45,7 @@ Auto sync is always on — there's no setting to turn it off:
 
 Two exceptions, both because there's nothing to compare against yet:
 
-- **First-time setup** (a new gist was created because none existed yet): *"VSCodium Sync: settings sync enabled."* — one notification, no diff button, covering both files.
+- **First-time setup** (a new gist was created because none existed yet): *"VSCodium Sync: sync enabled."* — one notification, no diff button, covering both files.
 - **No changes**: nothing — a no-op sync is silent by design, for either item independently.
 
 > **Note:** VS Code has no API for an extension to auto-dismiss a notification after a fixed delay while it still carries an action button (dismissing it would drop the button along with it). So these notifications follow VS Code's own default fade/history behaviour rather than a fixed "N seconds" — they don't sit there forever, but the extension doesn't control the exact timing.
