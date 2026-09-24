@@ -64,12 +64,19 @@ interface SyncTarget {
 	readLocal: () => string;
 }
 
+/** What `syncTarget` did for one item - the raw material `toOutcome` turns into a `SyncOutcome` entry. */
+interface TargetResult {
+	action: SyncAction;
+	diff?: ExtensionsDiff;
+	patchContent?: string;
+	remoteContentBeforePush?: string;
+}
+
 async function adoptExistingGist(
 	deps: SyncDeps,
 	existing: GistInfo,
 ): Promise<SyncOutcome> {
-	const extensionsTarget = resolveExtensionsTarget(deps.extensions);
-	const settingsTarget = resolveSettingsTarget(deps.settings);
+	const { extensionsTarget, settingsTarget } = resolveTargets(deps);
 
 	const settingsResult = await syncTarget(
 		existing.settingsContent,
@@ -93,25 +100,9 @@ async function adoptExistingGist(
 			? (await updateSyncGist(deps.token, existing.id, patch)).htmlUrl
 			: existing.htmlUrl;
 
-	await deps.store.update({
-		extensionsLastSyncedAtMs: Date.now(),
-		gistId: existing.id,
-		gistUrl,
-		settingsLastSyncedAtMs: Date.now(),
-	});
+	await touchSyncedAt(deps.store, gistUrl, existing.id);
 
-	return {
-		extensions: {
-			action: extensionsResult.action,
-			diff: extensionsResult.diff,
-			remoteContentBeforePush: extensionsResult.remoteContentBeforePush,
-		},
-		linked: "found",
-		settings: {
-			action: settingsResult.action,
-			remoteContentBeforePush: settingsResult.remoteContentBeforePush,
-		},
-	};
+	return toOutcome(settingsResult, extensionsResult, "found");
 }
 
 async function linkGist(deps: SyncDeps): Promise<SyncOutcome> {
@@ -126,17 +117,9 @@ async function linkGist(deps: SyncDeps): Promise<SyncOutcome> {
 		deps.settings.readLocal(),
 		deps.extensions.readLocal(),
 	);
-	await deps.store.update({
-		extensionsLastSyncedAtMs: Date.now(),
-		gistId: created.id,
-		gistUrl: created.htmlUrl,
-		settingsLastSyncedAtMs: Date.now(),
-	});
-	return {
-		extensions: { action: "push" },
-		linked: "created",
-		settings: { action: "push" },
-	};
+	await touchSyncedAt(deps.store, created.htmlUrl, created.id);
+
+	return toOutcome({ action: "push" }, { action: "push" }, "created");
 }
 
 export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
@@ -157,8 +140,7 @@ export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
 		throw error;
 	}
 
-	const extensionsTarget = resolveExtensionsTarget(deps.extensions);
-	const settingsTarget = resolveSettingsTarget(deps.settings);
+	const { extensionsTarget, settingsTarget } = resolveTargets(deps);
 
 	const settingsAction = decideSyncAction(
 		settingsTarget.getLocalChangedAtMs(),
@@ -195,23 +177,9 @@ export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
 		await updateSyncGist(deps.token, remote.id, patch);
 	}
 
-	await deps.store.update({
-		extensionsLastSyncedAtMs: Date.now(),
-		gistUrl: remote.htmlUrl,
-		settingsLastSyncedAtMs: Date.now(),
-	});
+	await touchSyncedAt(deps.store, remote.htmlUrl);
 
-	return {
-		extensions: {
-			action: extensionsResult.action,
-			diff: extensionsResult.diff,
-			remoteContentBeforePush: extensionsResult.remoteContentBeforePush,
-		},
-		settings: {
-			action: settingsResult.action,
-			remoteContentBeforePush: settingsResult.remoteContentBeforePush,
-		},
-	};
+	return toOutcome(settingsResult, extensionsResult);
 }
 
 function resolveExtensionsTarget(deps: ExtensionsSyncDeps): SyncTarget {
@@ -240,17 +208,22 @@ function resolveSettingsTarget(deps: SettingsSyncDeps): SyncTarget {
 	};
 }
 
+function resolveTargets(deps: SyncDeps): {
+	extensionsTarget: SyncTarget;
+	settingsTarget: SyncTarget;
+} {
+	return {
+		extensionsTarget: resolveExtensionsTarget(deps.extensions),
+		settingsTarget: resolveSettingsTarget(deps.settings),
+	};
+}
+
 /** The one place push/pull actually happens, for either target: given what the remote currently holds and which action was decided, apply it and report what happened. */
 async function syncTarget(
 	content: string | undefined,
 	target: SyncTarget,
 	action: SyncAction,
-): Promise<{
-	action: SyncAction;
-	diff?: ExtensionsDiff;
-	patchContent?: string;
-	remoteContentBeforePush?: string;
-}> {
+): Promise<TargetResult> {
 	if (action === "push") {
 		const localContent = target.readLocal();
 		if (localContent === (content ?? "")) return { action: "none" };
@@ -266,4 +239,36 @@ async function syncTarget(
 		return { action: "pull", diff: result.diff };
 	}
 	return { action: "none" };
+}
+
+function toOutcome(
+	settingsResult: TargetResult,
+	extensionsResult: TargetResult,
+	linked?: "found" | "created",
+): SyncOutcome {
+	return {
+		extensions: {
+			action: extensionsResult.action,
+			diff: extensionsResult.diff,
+			remoteContentBeforePush: extensionsResult.remoteContentBeforePush,
+		},
+		...(linked ? { linked } : {}),
+		settings: {
+			action: settingsResult.action,
+			remoteContentBeforePush: settingsResult.remoteContentBeforePush,
+		},
+	};
+}
+
+function touchSyncedAt(
+	store: SyncStateStore,
+	gistUrl: string,
+	gistId?: string,
+): Promise<void> {
+	return store.update({
+		extensionsLastSyncedAtMs: Date.now(),
+		...(gistId !== undefined ? { gistId } : {}),
+		gistUrl,
+		settingsLastSyncedAtMs: Date.now(),
+	});
 }

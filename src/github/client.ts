@@ -96,12 +96,20 @@ export async function findSyncGist(
 	return getGist(token, match.id);
 }
 
+async function requestGistInfo(
+	token: string,
+	path: string,
+	init?: RequestInit,
+): Promise<GistInfo> {
+	const response = await githubRequest(token, path, init);
+	return toGistInfo((await response.json()) as RawGist);
+}
+
 export async function getGist(
 	token: string,
 	gistId: string,
 ): Promise<GistInfo> {
-	const response = await githubRequest(token, `/gists/${gistId}`);
-	return toGistInfo((await response.json()) as RawGist);
+	return requestGistInfo(token, `/gists/${gistId}`);
 }
 
 export async function createSyncGist(
@@ -109,7 +117,7 @@ export async function createSyncGist(
 	settingsContent: string,
 	extensionsContent: string,
 ): Promise<GistInfo> {
-	const response = await githubRequest(token, "/gists", {
+	return requestGistInfo(token, "/gists", {
 		method: "POST",
 		body: JSON.stringify({
 			description: GIST_DESCRIPTION,
@@ -120,7 +128,6 @@ export async function createSyncGist(
 			}),
 		}),
 	});
-	return toGistInfo((await response.json()) as RawGist);
 }
 
 export async function updateSyncGist(
@@ -128,9 +135,8 @@ export async function updateSyncGist(
 	gistId: string,
 	patch: GistFilesPatch,
 ): Promise<GistInfo> {
-	const response = await githubRequest(token, `/gists/${gistId}`, {
+	return requestGistInfo(token, `/gists/${gistId}`, {
 		method: "PATCH",
 		body: JSON.stringify({ files: toFilesPayload(patch) }),
 	});
-	return toGistInfo((await response.json()) as RawGist);
 }

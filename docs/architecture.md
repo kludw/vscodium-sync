@@ -30,9 +30,11 @@ src/
     statusBar.ts              status bar item (glue, untested)
     menu.ts                    quick-pick menu (glue, untested)
     notifications.ts           toasts + diff view (glue, untested)
+  shared/
+    fetchMock.ts               test-only: shared bun:test fetch mock, used by github/client.test.ts and sync/engine.test.ts
 ```
 
-See [Testing](./testing.html) for why the split lands exactly there.
+See [Testing](./testing.html) for why the split lands exactly there. `shared/` is for code duplicated across two or more files with no single domain owner — not a general-purpose utilities dump; something only one module uses stays in that module.
 
 ## The sync algorithm
 

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { jsonResponse, mockFetch } from "../shared/fetchMock";
 import {
 	createSyncGist,
 	EXTENSIONS_FILENAME,
@@ -8,15 +9,6 @@ import {
 	SETTINGS_FILENAME,
 	updateSyncGist,
 } from "./client";
-
-function jsonResponse(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), { status });
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: bun-types' `typeof fetch` carries a static `preconnect` member a mock fn has no need to satisfy
-function mockFetch(): any {
-	return spyOn(global, "fetch");
-}
 
 afterEach(() => {
 	(global.fetch as ReturnType<typeof mockFetch>).mockRestore?.();

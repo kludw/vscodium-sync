@@ -1,10 +1,7 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { EXTENSIONS_FILENAME, SETTINGS_FILENAME } from "../github/client";
+import { jsonResponse, mockFetch } from "../shared/fetchMock";
 import { performSync, type SyncState, type SyncStateStore } from "./engine";
-
-function jsonResponse(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), { status });
-}
 
 function fakeStore(initial: SyncState): SyncStateStore & { state: SyncState } {
 	const store = {
@@ -17,11 +14,6 @@ function fakeStore(initial: SyncState): SyncStateStore & { state: SyncState } {
 		},
 	};
 	return store;
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: bun-types' `typeof fetch` carries a static `preconnect` member a mock fn has no need to satisfy
-function mockFetch(): any {
-	return spyOn(global, "fetch");
 }
 
 afterEach(() => {

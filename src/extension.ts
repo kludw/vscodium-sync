@@ -31,15 +31,29 @@ const SHOW_STATUS_COMMAND = "vscodiumSync.showStatus";
 
 const CREATED_MESSAGE = "VSCodium Sync: sync enabled.";
 
-const SETTINGS_PULL_MESSAGE = "VSCodium Sync: settings were updated.";
-const SETTINGS_PULL_DIFF_TITLE = "settings.json: before ↔ after pull";
-const SETTINGS_PUSH_MESSAGE = "VSCodium Sync: settings synced.";
-const SETTINGS_PUSH_DIFF_TITLE = "settings.json: before ↔ after push";
+interface ItemNotificationConfig {
+	id: "settings" | "extensions";
+	pullDiffTitle: string;
+	pullMessage: string;
+	pushDiffTitle: string;
+	pushMessage: string;
+}
 
-const EXTENSIONS_PULL_MESSAGE = "VSCodium Sync: extensions were updated.";
-const EXTENSIONS_PULL_DIFF_TITLE = "extensions: before ↔ after pull";
-const EXTENSIONS_PUSH_MESSAGE = "VSCodium Sync: extensions synced.";
-const EXTENSIONS_PUSH_DIFF_TITLE = "extensions: before ↔ after push";
+const SETTINGS_NOTIFICATION: ItemNotificationConfig = {
+	id: "settings",
+	pullDiffTitle: "settings.json: before ↔ after pull",
+	pullMessage: "VSCodium Sync: settings were updated.",
+	pushDiffTitle: "settings.json: before ↔ after push",
+	pushMessage: "VSCodium Sync: settings synced.",
+};
+
+const EXTENSIONS_NOTIFICATION: ItemNotificationConfig = {
+	id: "extensions",
+	pullDiffTitle: "extensions: before ↔ after pull",
+	pullMessage: "VSCodium Sync: extensions were updated.",
+	pushDiffTitle: "extensions: before ↔ after push",
+	pushMessage: "VSCodium Sync: extensions synced.",
+};
 
 export async function activate(
 	context: vscode.ExtensionContext,
@@ -180,42 +194,48 @@ function notifyOutcome(outcome: SyncOutcome, ctx: NotifyOutcomeContext): void {
 
 	const logError = (message: string) => ctx.log.error(message);
 
-	if (outcome.settings.action === "pull") {
-		void notifySynced({
-			id: "settings",
-			message: SETTINGS_PULL_MESSAGE,
-			diffTitle: SETTINGS_PULL_DIFF_TITLE,
-			beforeContent: ctx.settingsBeforeSync,
-			afterContent: ctx.settingsAfterSync,
-			logError,
-		});
-	} else if (outcome.settings.action === "push") {
-		void notifySynced({
-			id: "settings",
-			message: SETTINGS_PUSH_MESSAGE,
-			diffTitle: SETTINGS_PUSH_DIFF_TITLE,
-			beforeContent: outcome.settings.remoteContentBeforePush ?? "",
-			afterContent: ctx.settingsAfterSync,
-			logError,
-		});
-	}
+	notifyItemOutcome(
+		SETTINGS_NOTIFICATION,
+		outcome.settings,
+		ctx.settingsBeforeSync,
+		ctx.settingsAfterSync,
+		logError,
+	);
+	notifyItemOutcome(
+		EXTENSIONS_NOTIFICATION,
+		outcome.extensions,
+		ctx.extensionsBeforeSync,
+		ctx.extensionsAfterSync,
+		logError,
+	);
+}
 
-	if (outcome.extensions.action === "pull") {
+function notifyItemOutcome(
+	config: ItemNotificationConfig,
+	result: {
+		action: SyncOutcome["settings"]["action"];
+		remoteContentBeforePush?: string;
+	},
+	beforeSync: string,
+	afterSync: string,
+	logError: (message: string) => void,
+): void {
+	if (result.action === "pull") {
 		void notifySynced({
-			id: "extensions",
-			message: EXTENSIONS_PULL_MESSAGE,
-			diffTitle: EXTENSIONS_PULL_DIFF_TITLE,
-			beforeContent: ctx.extensionsBeforeSync,
-			afterContent: ctx.extensionsAfterSync,
+			id: config.id,
+			message: config.pullMessage,
+			diffTitle: config.pullDiffTitle,
+			beforeContent: beforeSync,
+			afterContent: afterSync,
 			logError,
 		});
-	} else if (outcome.extensions.action === "push") {
+	} else if (result.action === "push") {
 		void notifySynced({
-			id: "extensions",
-			message: EXTENSIONS_PUSH_MESSAGE,
-			diffTitle: EXTENSIONS_PUSH_DIFF_TITLE,
-			beforeContent: outcome.extensions.remoteContentBeforePush ?? "",
-			afterContent: ctx.extensionsAfterSync,
+			id: config.id,
+			message: config.pushMessage,
+			diffTitle: config.pushDiffTitle,
+			beforeContent: result.remoteContentBeforePush ?? "",
+			afterContent: afterSync,
 			logError,
 		});
 	}
@@ -245,29 +265,35 @@ async function applyExtensionsDiff(
 	diff: ExtensionsDiff,
 	log: vscode.LogOutputChannel,
 ): Promise<void> {
-	for (const id of diff.toInstall) {
+	await runExtensionCommands(
+		diff.toInstall,
+		"install",
+		"workbench.extensions.installExtension",
+		log,
+	);
+	await runExtensionCommands(
+		diff.toUninstall,
+		"uninstall",
+		"workbench.extensions.uninstallExtension",
+		log,
+	);
+}
+
+async function runExtensionCommands(
+	ids: string[],
+	verb: "install" | "uninstall",
+	command: string,
+	log: vscode.LogOutputChannel,
+): Promise<void> {
+	for (const id of ids) {
 		try {
-			await vscode.commands.executeCommand(
-				"workbench.extensions.installExtension",
-				id,
+			await vscode.commands.executeCommand(command, id);
+			log.info(
+				`${verb === "install" ? "Installed" : "Uninstalled"} extension ${id}.`,
 			);
-			log.info(`Installed extension ${id}.`);
 		} catch (error) {
 			log.error(
-				`Failed to install extension ${id}: ${(error as Error).message}`,
-			);
-		}
-	}
-	for (const id of diff.toUninstall) {
-		try {
-			await vscode.commands.executeCommand(
-				"workbench.extensions.uninstallExtension",
-				id,
-			);
-			log.info(`Uninstalled extension ${id}.`);
-		} catch (error) {
-			log.error(
-				`Failed to uninstall extension ${id}: ${(error as Error).message}`,
+				`Failed to ${verb} extension ${id}: ${(error as Error).message}`,
 			);
 		}
 	}
@@ -290,24 +316,28 @@ function createGlobalStateStore(
 			};
 		},
 		async update(patch: Partial<SyncState>): Promise<void> {
-			if (patch.gistId !== undefined) {
-				await context.globalState.update(GIST_ID_KEY, patch.gistId);
-			}
-			if (patch.gistUrl !== undefined) {
-				await context.globalState.update(GIST_URL_KEY, patch.gistUrl);
-			}
-			if (patch.settingsLastSyncedAtMs !== undefined) {
-				await context.globalState.update(
-					SETTINGS_LAST_SYNCED_AT_KEY,
-					patch.settingsLastSyncedAtMs,
-				);
-			}
-			if (patch.extensionsLastSyncedAtMs !== undefined) {
-				await context.globalState.update(
-					EXTENSIONS_LAST_SYNCED_AT_KEY,
-					patch.extensionsLastSyncedAtMs,
-				);
-			}
+			await updateIfDefined(context, GIST_ID_KEY, patch.gistId);
+			await updateIfDefined(context, GIST_URL_KEY, patch.gistUrl);
+			await updateIfDefined(
+				context,
+				SETTINGS_LAST_SYNCED_AT_KEY,
+				patch.settingsLastSyncedAtMs,
+			);
+			await updateIfDefined(
+				context,
+				EXTENSIONS_LAST_SYNCED_AT_KEY,
+				patch.extensionsLastSyncedAtMs,
+			);
 		},
 	};
+}
+
+function updateIfDefined<T>(
+	context: vscode.ExtensionContext,
+	key: string,
+	value: T | undefined,
+): Thenable<void> {
+	return value === undefined
+		? Promise.resolve()
+		: context.globalState.update(key, value);
 }
