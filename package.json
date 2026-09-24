@@ -1,7 +1,7 @@
 {
   "name": "vscodium-sync",
   "displayName": "VSCodium Sync",
-  "description": "Minimal scaffold",
+  "description": "Two-way sync of VSCodium settings.json via a private GitHub gist, auto-syncing in the background.",
   "version": "0.0.1",
   "private": true,
   "engines": {
@@ -11,16 +11,30 @@
   "activationEvents": [
     "onStartupFinished"
   ],
-  "contributes": {},
+  "extensionDependencies": [
+    "vscode.github-authentication"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscodiumSync.showStatus",
+        "title": "VSCodium Sync: Show Status"
+      }
+    ]
+  },
   "scripts": {
     "build": "bun build ./src/extension.ts --outdir ./dist --target node --external vscode",
     "clean": "rm -rf dist/ && rm -rf node_modules/",
     "check": "biome check .",
+    "typecheck": "tsc --noEmit",
     "format": "biome format --write .",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
     "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
+    "@types/bun": "^1.4.2",
     "@types/node": "^26.6.2",
     "@types/vscode": "^1.138.0",
     "husky": "^9.1.7",

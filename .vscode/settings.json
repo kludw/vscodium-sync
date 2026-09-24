@@ -8,5 +8,9 @@
         "bun.lock",
         ".vscode/",
         ".husky/"
+    ],
+    "cSpell.words": [
+        "gists",
+        "mkdocs"
     ]
 }

@@ -7,7 +7,7 @@
     "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "dist",
-    "types": ["vscode", "node"]
+    "types": ["vscode", "node", "bun"]
   },
   "include": ["src"]
 }
