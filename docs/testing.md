@@ -42,3 +42,7 @@ These aren't "tests" but are run alongside them as the full verification pass:
 bun run check        # biome check . — lint + format check
 bun run typecheck    # tsc --noEmit
 ```
+
+## Continuous integration
+
+Every pull request against `master` runs the same verification pass automatically, via `.github/workflows/ci.yml`: `bun run check`, `bun run typecheck`, `bun test --coverage`, and `bun run build`, on `ubuntu-latest`. There's no separate on-push workflow — `master` only moves via merged, already-checked PRs.
