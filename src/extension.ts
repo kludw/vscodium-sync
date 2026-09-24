@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { dirname } from "node:path";
 import * as vscode from "vscode";
 import { resolveSettingsPath } from "./settings/path";
+import { sortJsonKeys } from "./settings/sortJson";
 import { showStatusMenu } from "./status/menu";
 import { notifyCreated, notifySynced } from "./status/notifications";
 import { createStatusBar } from "./status/statusBar";
@@ -95,7 +96,7 @@ export async function activate(
 	const sync = async (): Promise<void> => {
 		statusBar.setSyncing();
 		log.info("Sync starting…");
-		const settingsBeforeSync = readFileSync(settingsPath, "utf8");
+		const settingsBeforeSync = readSettings(settingsPath);
 		const extensionsBeforeSync = readLocalExtensions();
 		try {
 			const outcome = await performSync({
@@ -106,10 +107,10 @@ export async function activate(
 				},
 				settings: {
 					getLocalChangedAtMs: () => statSync(settingsPath).mtimeMs,
-					readLocal: () => readFileSync(settingsPath, "utf8"),
+					readLocal: () => readSettings(settingsPath),
 					writeLocal: (content) => {
 						writingLocally = true;
-						writeFileSync(settingsPath, content, "utf8");
+						writeSettings(settingsPath, content);
 					},
 				},
 				store,
@@ -125,7 +126,7 @@ export async function activate(
 				extensionsAfterSync: readLocalExtensions(),
 				extensionsBeforeSync,
 				log,
-				settingsAfterSync: readFileSync(settingsPath, "utf8"),
+				settingsAfterSync: readSettings(settingsPath),
 				settingsBeforeSync,
 			});
 		} catch (error) {
@@ -311,6 +312,10 @@ function readLocalExtensions(): string {
 	return JSON.stringify(ids, null, 2);
 }
 
+function readSettings(settingsPath: string): string {
+	return sortJsonKeys(readFileSync(settingsPath, "utf8"));
+}
+
 async function runExtensionCommands(
 	ids: string[],
 	verb: "install" | "uninstall",
@@ -339,4 +344,8 @@ function updateIfDefined<T>(
 	return value === undefined
 		? Promise.resolve()
 		: context.globalState.update(key, value);
+}
+
+function writeSettings(settingsPath: string, content: string): void {
+	writeFileSync(settingsPath, sortJsonKeys(content), "utf8");
 }

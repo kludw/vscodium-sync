@@ -54,6 +54,10 @@ Two exceptions, both because there's nothing to compare against yet:
 
 If both your local `settings.json` and the gist changed since the last sync, **the more recently modified one wins** and silently overwrites the other — there's no merge prompt. See [Architecture](./architecture.html#conflict-resolution) for the exact rule.
 
+## Settings sync
+
+`settings.json`'s keys are sorted alphabetically (recursively, at every depth) whenever a sync reads, compares, or writes it — so both your local file and the gist stay readable, rather than whatever insertion order your editor happened to leave them in. If you keep a `// comment` in `settings.json` (VS Code allows this), sorting is silently skipped for that file — it keeps syncing as an unsorted, verbatim mirror instead, since sorting would otherwise require dropping the comment. See [ADR 0011](./adr/0011-sort-settings-json-keys.html) for the trade-off this accepts.
+
 ## Extensions sync
 
 Installed extensions sync the same way settings do — same gist, same triggers, same last-write-wins rule, same notification flow above — with two differences worth knowing:

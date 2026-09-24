@@ -20,6 +20,7 @@ An ADR records one significant architecture decision: the context that forced it
 | [0008](./0008-public-repo-for-github-pages.html) | Publish docs via GitHub Pages, making the repository public | Accepted |
 | [0009](./0009-sync-installed-extensions.html) | Sync installed extensions (full mirror, silent install) | Accepted |
 | [0010](./0010-recover-from-missing-gist.html) | Auto-recover by re-linking when the linked gist is gone | Accepted |
+| [0011](./0011-sort-settings-json-keys.html) | Sort settings.json keys on both sides of the sync | Accepted |
 
 ## When to add one
 

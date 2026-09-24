@@ -26,6 +26,8 @@ src/
   settings/
     path.ts                  per-platform settings.json path (pure)
     path.test.ts
+    sortJson.ts               recursive JSON key sort, safe no-op on unparsable content (pure)
+    sortJson.test.ts
   status/
     statusBar.ts              status bar item (glue, untested)
     menu.ts                    quick-pick menu (glue, untested)
@@ -75,6 +77,10 @@ This is **last-write-wins** — the loser is silently overwritten, no merge, no 
 
 `syncTarget(content, target, action)` is the one place push/pull actually happens, for either item — settings and extensions are both adapted into the same small `SyncTarget` shape (`readLocal`, `getLocalChangedAtMs`, `pull`) by `resolveSettingsTarget`/`resolveExtensionsTarget`, so the push logic and the "did anything really change" check exist exactly once rather than twice. The one genuine difference — a settings pull overwrites a string, an extensions pull computes and applies a diff — stays inside each item's own `pull` implementation, not in `syncTarget` itself, so `computeExtensionDiff` (see below) stays part of the tested core rather than leaking into `src/extension.ts`.
 
+### Settings specifically
+
+`sortJsonKeys()` in `src/settings/sortJson.ts` recursively sorts object keys (array element order is left alone) before `settings.json` content is used anywhere — read for a push, compared for equality, or written by a pull. Both `readSettings()`/`writeSettings()` in `src/extension.ts` route through it, so local and remote are always compared in the same canonical form, not just sorted at the moment of pushing (see [ADR 0011](./adr/0011-sort-settings-json-keys.html) for why that matters). If the content isn't valid JSON — most likely because it has a `// comment`, which VS Code's `settings.json` allows but `JSON.parse` doesn't — sorting is skipped and the original content passes through unchanged rather than failing the sync.
+
 ### Extensions specifically
 
 `computeExtensionDiff(currentContent, targetContent)` in `src/sync/extensions.ts` is a pure set difference between two JSON arrays of extension IDs — everything to install (in target, not current) and everything to uninstall (in current, not target). `src/extension.ts` supplies `currentContent` from `vscode.extensions.all` (filtered to exclude built-ins) and applies the resulting diff via `workbench.extensions.installExtension` / `workbench.extensions.uninstallExtension`, logging each attempt and continuing past individual failures.
@@ -83,7 +89,7 @@ This is **last-write-wins** — the loser is silently overwritten, no merge, no 
 
 ## Where state lives
 
-Four fields — `gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `extensionsLastSyncedAtMs` — are persisted via `context.globalState` in `src/extension.ts`. This is VS Code's own per-machine extension storage (backed by a local SQLite database), and it is **never** written into `settings.json` or synced as a workspace/user setting. The gist's `vscodium-sync-settings.json` file is an exact mirror of `settings.json`, and `vscodium-sync-extensions.json` an exact mirror of the installed-extensions list — nothing is ever injected into either to track sync state.
+Four fields — `gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `extensionsLastSyncedAtMs` — are persisted via `context.globalState` in `src/extension.ts`. This is VS Code's own per-machine extension storage (backed by a local SQLite database), and it is **never** written into `settings.json` or synced as a workspace/user setting. The gist's `vscodium-sync-extensions.json` file is an exact mirror of the installed-extensions list, and `vscodium-sync-settings.json` a canonicalised mirror of `settings.json` (key-sorted — see [ADR 0011](./adr/0011-sort-settings-json-keys.html)) — nothing is ever injected into either to track sync state.
 
 ## Authentication
 
