@@ -11,14 +11,11 @@ import { dirname } from "node:path";
 import * as vscode from "vscode";
 import { resolveSettingsPath } from "./settings/path";
 import { showStatusMenu } from "./status/menu";
-import {
-	notifyCreated,
-	notifyExtensionsChanged,
-	notifySynced,
-} from "./status/notifications";
+import { notifyCreated, notifySynced } from "./status/notifications";
 import { createStatusBar } from "./status/statusBar";
 import {
 	performSync,
+	type SyncOutcome,
 	type SyncState,
 	type SyncStateStore,
 } from "./sync/engine";
@@ -32,11 +29,17 @@ const SETTINGS_LAST_SYNCED_AT_KEY = "vscodiumSync.settingsLastSyncedAtMs";
 const EXTENSIONS_LAST_SYNCED_AT_KEY = "vscodiumSync.extensionsLastSyncedAtMs";
 const SHOW_STATUS_COMMAND = "vscodiumSync.showStatus";
 
-const PULL_MESSAGE = "VSCodium Sync: settings were updated.";
-const PULL_DIFF_TITLE = "settings.json: before ↔ after pull";
-const PUSH_MESSAGE = "VSCodium Sync: settings synced.";
-const PUSH_DIFF_TITLE = "settings.json: before ↔ after push";
 const CREATED_MESSAGE = "VSCodium Sync: settings sync enabled.";
+
+const SETTINGS_PULL_MESSAGE = "VSCodium Sync: settings were updated.";
+const SETTINGS_PULL_DIFF_TITLE = "settings.json: before ↔ after pull";
+const SETTINGS_PUSH_MESSAGE = "VSCodium Sync: settings synced.";
+const SETTINGS_PUSH_DIFF_TITLE = "settings.json: before ↔ after push";
+
+const EXTENSIONS_PULL_MESSAGE = "VSCodium Sync: extensions were updated.";
+const EXTENSIONS_PULL_DIFF_TITLE = "extensions: before ↔ after pull";
+const EXTENSIONS_PUSH_MESSAGE = "VSCodium Sync: extensions synced.";
+const EXTENSIONS_PUSH_DIFF_TITLE = "extensions: before ↔ after push";
 
 export async function activate(
 	context: vscode.ExtensionContext,
@@ -71,7 +74,8 @@ export async function activate(
 	const sync = async (): Promise<void> => {
 		statusBar.setSyncing();
 		log.info("Sync starting…");
-		const localSettingsBeforeSync = readFileSync(settingsPath, "utf8");
+		const settingsBeforeSync = readFileSync(settingsPath, "utf8");
+		const extensionsBeforeSync = readLocalExtensions();
 		try {
 			const outcome = await performSync({
 				token: session.accessToken,
@@ -96,7 +100,13 @@ export async function activate(
 			);
 			statusBar.setSynced(Date.now());
 
-			notifyOutcome(outcome, localSettingsBeforeSync, settingsPath, log);
+			notifyOutcome(outcome, {
+				settingsBeforeSync,
+				settingsAfterSync: readFileSync(settingsPath, "utf8"),
+				extensionsBeforeSync,
+				extensionsAfterSync: readLocalExtensions(),
+				log,
+			});
 		} catch (error) {
 			const message = (error as Error).message;
 			log.error(`Sync failed: ${message}`);
@@ -154,36 +164,60 @@ export async function activate(
 
 export function deactivate(): void {}
 
-function notifyOutcome(
-	outcome: Awaited<ReturnType<typeof performSync>>,
-	localSettingsBeforeSync: string,
-	settingsPath: string,
-	log: vscode.LogOutputChannel,
-): void {
-	const logError = (message: string) => log.error(message);
+interface NotifyOutcomeContext {
+	settingsBeforeSync: string;
+	settingsAfterSync: string;
+	extensionsBeforeSync: string;
+	extensionsAfterSync: string;
+	log: vscode.LogOutputChannel;
+}
 
+function notifyOutcome(outcome: SyncOutcome, ctx: NotifyOutcomeContext): void {
 	if (outcome.linked === "created") {
 		notifyCreated(CREATED_MESSAGE);
-	} else if (outcome.settings.action === "pull") {
+		return;
+	}
+
+	const logError = (message: string) => ctx.log.error(message);
+
+	if (outcome.settings.action === "pull") {
 		void notifySynced({
-			message: PULL_MESSAGE,
-			diffTitle: PULL_DIFF_TITLE,
-			beforeContent: localSettingsBeforeSync,
-			settingsPath,
+			id: "settings",
+			message: SETTINGS_PULL_MESSAGE,
+			diffTitle: SETTINGS_PULL_DIFF_TITLE,
+			beforeContent: ctx.settingsBeforeSync,
+			afterContent: ctx.settingsAfterSync,
 			logError,
 		});
 	} else if (outcome.settings.action === "push") {
 		void notifySynced({
-			message: PUSH_MESSAGE,
-			diffTitle: PUSH_DIFF_TITLE,
+			id: "settings",
+			message: SETTINGS_PUSH_MESSAGE,
+			diffTitle: SETTINGS_PUSH_DIFF_TITLE,
 			beforeContent: outcome.settings.remoteContentBeforePush ?? "",
-			settingsPath,
+			afterContent: ctx.settingsAfterSync,
 			logError,
 		});
 	}
 
-	if (outcome.extensions.diff) {
-		notifyExtensionsChanged(outcome.extensions.diff, () => log.show());
+	if (outcome.extensions.action === "pull") {
+		void notifySynced({
+			id: "extensions",
+			message: EXTENSIONS_PULL_MESSAGE,
+			diffTitle: EXTENSIONS_PULL_DIFF_TITLE,
+			beforeContent: ctx.extensionsBeforeSync,
+			afterContent: ctx.extensionsAfterSync,
+			logError,
+		});
+	} else if (outcome.extensions.action === "push") {
+		void notifySynced({
+			id: "extensions",
+			message: EXTENSIONS_PUSH_MESSAGE,
+			diffTitle: EXTENSIONS_PUSH_DIFF_TITLE,
+			beforeContent: outcome.extensions.remoteContentBeforePush ?? "",
+			afterContent: ctx.extensionsAfterSync,
+			logError,
+		});
 	}
 }
 

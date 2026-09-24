@@ -11,7 +11,7 @@ bun test              # run everything
 bun test --coverage   # with a per-file coverage table
 ```
 
-As of this writing: **29 tests, 73 assertions, across 5 files** — `github/client.test.ts`, `sync/conflict.test.ts`, `sync/engine.test.ts`, `sync/extensions.test.ts`, `settings/path.test.ts` — all passing, with **100% function and line coverage** on the five modules they cover. Run `bun test --coverage` yourself for current numbers; this snapshot will drift as the code grows.
+As of this writing: **31 tests, 79 assertions, across 5 files** — `github/client.test.ts`, `sync/conflict.test.ts`, `sync/engine.test.ts`, `sync/extensions.test.ts`, `settings/path.test.ts` — all passing, with **100% function and line coverage** on the five modules they cover. Run `bun test --coverage` yourself for current numbers; this snapshot will drift as the code grows.
 
 ## What's tested, and what isn't
 

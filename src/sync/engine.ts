@@ -43,7 +43,11 @@ export interface SyncOutcome {
 	/** Set only on the sync that first links a gist to this machine. */
 	linked?: "found" | "created";
 	settings: { action: SyncAction; remoteContentBeforePush?: string };
-	extensions: { action: SyncAction; diff?: ExtensionsDiff };
+	extensions: {
+		action: SyncAction;
+		remoteContentBeforePush?: string;
+		diff?: ExtensionsDiff;
+	};
 }
 
 export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
@@ -114,6 +118,7 @@ async function applyActions(
 
 	let resolvedExtensionsAction = extensionsAction;
 	let extensionsDiff: ExtensionsDiff | undefined;
+	let extensionsRemoteContentBeforePush: string | undefined;
 
 	if (extensionsAction === "push") {
 		const localContent = deps.extensions.readLocal();
@@ -121,13 +126,19 @@ async function applyActions(
 			resolvedExtensionsAction = "none";
 		} else {
 			patch.extensions = localContent;
+			extensionsRemoteContentBeforePush = remote.extensionsContent;
 		}
 	} else if (extensionsAction === "pull") {
-		extensionsDiff = computeExtensionDiff(
+		const diff = computeExtensionDiff(
 			deps.extensions.readLocal(),
 			remote.extensionsContent,
 		);
-		await deps.extensions.applyDiff(extensionsDiff);
+		if (diff.toInstall.length === 0 && diff.toUninstall.length === 0) {
+			resolvedExtensionsAction = "none";
+		} else {
+			await deps.extensions.applyDiff(diff);
+			extensionsDiff = diff;
+		}
 	}
 
 	if (patch.settings !== undefined || patch.extensions !== undefined) {
@@ -136,7 +147,11 @@ async function applyActions(
 
 	return {
 		settings: { action: resolvedSettingsAction, remoteContentBeforePush },
-		extensions: { action: resolvedExtensionsAction, diff: extensionsDiff },
+		extensions: {
+			action: resolvedExtensionsAction,
+			remoteContentBeforePush: extensionsRemoteContentBeforePush,
+			diff: extensionsDiff,
+		},
 	};
 }
 
@@ -186,8 +201,12 @@ async function adoptExistingGist(
 			deps.extensions.readLocal(),
 			existing.extensionsContent,
 		);
-		await deps.extensions.applyDiff(diff);
-		extensionsOutcome = { action: "pull", diff };
+		if (diff.toInstall.length === 0 && diff.toUninstall.length === 0) {
+			extensionsOutcome = { action: "none" };
+		} else {
+			await deps.extensions.applyDiff(diff);
+			extensionsOutcome = { action: "pull", diff };
+		}
 	}
 
 	await deps.store.update({

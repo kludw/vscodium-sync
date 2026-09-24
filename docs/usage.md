@@ -34,13 +34,19 @@ Auto sync is always on — there's no setting to turn it off:
 
 ## Notifications
 
-Whenever a sync actually changes something, you get a notification:
+**Settings and extensions notify the same way** — one flow, applied to whichever item actually changed. Whenever a sync pushes or pulls something, you get a notification with a **View Diff** button that opens a before/after comparison in a normal diff editor:
 
-- **Settings pulled** (someone else's changes came in): *"VSCodium Sync: settings were updated."* with a **View Diff** button showing what changed in your local `settings.json`.
-- **Settings pushed** (your local changes went out): *"VSCodium Sync: settings synced."* with **View Diff** showing what changed in the gist.
-- **First-time setup** (a new gist was created because none existed yet): *"VSCodium Sync: settings sync enabled."* — no diff button, since there's nothing to compare against yet.
-- **Extensions changed** (installs/uninstalls were applied to match the synced list): *"VSCodium Sync: extensions installed N, uninstalled M."* with a **Show Log** button listing exactly which ones.
-- **No changes**: nothing — a no-op sync is silent by design.
+| Item | Direction | Message | View Diff shows |
+| --- | --- | --- | --- |
+| Settings | Pulled | *"VSCodium Sync: settings were updated."* | Your local `settings.json` before ↔ after the pull |
+| Settings | Pushed | *"VSCodium Sync: settings synced."* | The gist's old content ↔ what you just pushed |
+| Extensions | Pulled | *"VSCodium Sync: extensions were updated."* | Your installed-extensions list before ↔ after the installs/uninstalls |
+| Extensions | Pushed | *"VSCodium Sync: extensions synced."* | The gist's old list ↔ what you just pushed |
+
+Two exceptions, both because there's nothing to compare against yet:
+
+- **First-time setup** (a new gist was created because none existed yet): *"VSCodium Sync: settings sync enabled."* — one notification, no diff button, covering both files.
+- **No changes**: nothing — a no-op sync is silent by design, for either item independently.
 
 > **Note:** VS Code has no API for an extension to auto-dismiss a notification after a fixed delay while it still carries an action button (dismissing it would drop the button along with it). So these notifications follow VS Code's own default fade/history behaviour rather than a fixed "N seconds" — they don't sit there forever, but the extension doesn't control the exact timing.
 
@@ -50,7 +56,7 @@ If both your local `settings.json` and the gist changed since the last sync, **t
 
 ## Extensions sync
 
-Installed extensions sync the same way settings do, sharing the same gist, the same triggers, and the same last-write-wins rule — with two differences worth knowing:
+Installed extensions sync the same way settings do — same gist, same triggers, same last-write-wins rule, same notification flow above — with two differences worth knowing:
 
 - **It mirrors fully**: uninstall an extension on one machine and it gets uninstalled everywhere else too, next time that machine syncs. There's no "keep this one anyway."
 - **It installs silently**: a missing extension installs with no confirmation prompt. Because this executes third-party code with no local review step, it's worth understanding what that means for your GitHub account — see [ADR 0009](./adr/0009-sync-installed-extensions.html).

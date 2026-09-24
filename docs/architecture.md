@@ -81,4 +81,9 @@ Four fields — `gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `extensionsLastSy
 
 ## Diff view
 
-For push and pull notifications on `settings.json`, the "before" content is written to a fixed temp file (`vscodium-sync-diff-before.json` in the OS temp dir) and opened against the live `settings.json` via the built-in `vscode.diff` command — no custom diff UI, no content-provider scheme. Extensions notifications don't use this: there's no meaningful text diff for "which extensions changed," so that notification just states counts, with a "Show Log" action for the actual IDs.
+Both `settings.json` and the extensions list notify and diff the same way — `notifySynced()` in `src/status/notifications.ts` is the one function both go through, given a message, a diff title, and explicit before/after content:
+
+- **Settings**: before/after are the file's text content, captured immediately before and after the sync (for a push, "before" is the gist's prior content, returned as `remoteContentBeforePush`; for a pull, "before" is what was on disk before the write).
+- **Extensions**: before/after are `readLocalExtensions()`'s JSON output at those same two points — so "View Diff" on an extensions notification shows the ID list changing, exactly the way `computeExtensionDiff` reasoned about it internally.
+
+Both sides are written to temp files (`vscodium-sync-diff-<id>-before.json` / `-after.json`, `id` being `"settings"` or `"extensions"` so the two never collide) and opened via the built-in `vscode.diff` command — no custom diff UI, no content-provider scheme, no per-item special-casing in the notification code itself.

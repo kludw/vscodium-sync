@@ -1,17 +1,16 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as vscode from "vscode";
-import type { ExtensionsDiff } from "../sync/extensions";
 
-const DIFF_BEFORE_FILENAME = "vscodium-sync-diff-before.json";
 const VIEW_DIFF = "View Diff";
-const SHOW_LOG = "Show Log";
 
 export interface SyncedNotificationDeps {
+	/** Namespaces the temp diff files so a settings diff and an extensions diff never collide. */
+	id: string;
 	message: string;
 	diffTitle: string;
 	beforeContent: string;
-	settingsPath: string;
+	afterContent: string;
 	logError: (message: string) => void;
 }
 
@@ -25,15 +24,24 @@ export async function notifySynced(
 	if (choice !== VIEW_DIFF) return;
 
 	try {
-		const beforeUri = vscode.Uri.file(join(tmpdir(), DIFF_BEFORE_FILENAME));
+		const beforeUri = vscode.Uri.file(
+			join(tmpdir(), `vscodium-sync-diff-${deps.id}-before.json`),
+		);
+		const afterUri = vscode.Uri.file(
+			join(tmpdir(), `vscodium-sync-diff-${deps.id}-after.json`),
+		);
 		await vscode.workspace.fs.writeFile(
 			beforeUri,
 			Buffer.from(deps.beforeContent, "utf8"),
 		);
+		await vscode.workspace.fs.writeFile(
+			afterUri,
+			Buffer.from(deps.afterContent, "utf8"),
+		);
 		await vscode.commands.executeCommand(
 			"vscode.diff",
 			beforeUri,
-			vscode.Uri.file(deps.settingsPath),
+			afterUri,
 			deps.diffTitle,
 		);
 	} catch (error) {
@@ -43,25 +51,4 @@ export async function notifySynced(
 
 export function notifyCreated(message: string): void {
 	vscode.window.showInformationMessage(message);
-}
-
-export function notifyExtensionsChanged(
-	diff: ExtensionsDiff,
-	showLog: () => void,
-): void {
-	const parts: string[] = [];
-	if (diff.toInstall.length > 0)
-		parts.push(`installed ${diff.toInstall.length}`);
-	if (diff.toUninstall.length > 0)
-		parts.push(`uninstalled ${diff.toUninstall.length}`);
-	if (parts.length === 0) return;
-
-	vscode.window
-		.showInformationMessage(
-			`VSCodium Sync: extensions ${parts.join(", ")}.`,
-			SHOW_LOG,
-		)
-		.then((choice) => {
-			if (choice === SHOW_LOG) showLog();
-		});
 }

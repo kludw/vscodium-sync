@@ -87,6 +87,46 @@ describe("performSync — no gist linked yet", () => {
 		expect(store.state.gistUrl).toBe("https://gist.github.com/someone/found");
 	});
 
+	test("adopts an existing gist whose extensions already match: reports none, never applies a diff", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse([{ id: "found", files: { [SETTINGS_FILENAME]: {} } }]),
+		);
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "found",
+				updated_at: "2024-01-01T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/found",
+				files: {
+					[SETTINGS_FILENAME]: { content: '{"remote":true}' },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
+			}),
+		);
+
+		const store = fakeStore(noGistState());
+
+		const outcome = await performSync({
+			token: "tok",
+			store,
+			settings: {
+				readLocal: () => '{"local":true}',
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => 0,
+			},
+			extensions: {
+				readLocal: () => '["a.one"]',
+				applyDiff: async () => {
+					throw new Error("should not apply an empty diff");
+				},
+				getLocalChangedAtMs: () => 0,
+			},
+		});
+
+		expect(outcome.extensions.action).toBe("none");
+		expect(outcome.extensions.diff).toBeUndefined();
+	});
+
 	test("adopts an existing gist that predates extensions support: seeds the extensions file", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>
@@ -310,10 +350,51 @@ describe("performSync — gist already linked", () => {
 		expect(outcome.settings.action).toBe("pull");
 		expect(writtenSettings).toBe("remote-new");
 		expect(outcome.extensions.action).toBe("push");
+		expect(outcome.extensions.remoteContentBeforePush).toBe('["old.ext"]');
 		const [, init] = fetchSpy.mock.calls[1] as [string, RequestInit];
 		const body = JSON.parse(init.body as string);
 		expect(body.files[EXTENSIONS_FILENAME].content).toBe('["local.ext"]');
 		expect(body.files[SETTINGS_FILENAME]).toBeUndefined();
+	});
+
+	test("reports none (and never calls applyDiff) when a pull would apply an empty diff", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "gist-1",
+				updated_at: "2024-06-01T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/gist-1",
+				files: {
+					[SETTINGS_FILENAME]: { content: "same" },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
+			}),
+		);
+
+		const store = fakeStore(linkedState());
+
+		const outcome = await performSync({
+			token: "tok",
+			store,
+			settings: {
+				readLocal: () => "same",
+				writeLocal: () => {
+					throw new Error("should not write local");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
+			extensions: {
+				readLocal: () => '["a.one"]',
+				applyDiff: async () => {
+					throw new Error("should not apply an empty diff");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
+		});
+
+		expect(outcome.extensions.action).toBe("none");
+		expect(outcome.extensions.diff).toBeUndefined();
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
 	});
 
 	test("pulls and applies an extensions diff when only extensions changed remotely", async () => {

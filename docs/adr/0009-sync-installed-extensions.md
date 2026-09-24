@@ -25,7 +25,7 @@ Implementation:
 - `src/sync/extensions.ts` — a pure `computeExtensionDiff(currentContent, targetContent)` — decides what to install/uninstall by set difference. No merge semantics beyond that: the target list simply replaces the current one.
 - `src/extension.ts` applies the diff via the documented `workbench.extensions.installExtension` / `workbench.extensions.uninstallExtension` commands, with per-extension try/catch so one failure doesn't block the rest, and logs every install/uninstall attempt and failure.
 - Built-in extensions are excluded from the synced list (via `packageJSON.isBuiltin`, an undocumented-but-real runtime property) so the sync can never touch what ships with the editor.
-- A notification fires only when the applied diff is non-empty ("installed N, uninstalled M"), with a "Show Log" action for detail — no per-extension confirmation prompt, per the silent-install decision.
+- A notification fires whenever a push or pull actually changes something, through the same `notifySynced` / View Diff flow `settings.json` uses (see [Architecture: Diff view](../architecture.html#diff-view)) — standardised on one notification flow for both synced items rather than a separate count-based message for extensions. No per-extension confirmation prompt either way, per the silent-install decision.
 
 ## Consequences
 

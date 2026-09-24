@@ -20,4 +20,13 @@ Notable changes to this project, following [Keep a Changelog](https://keepachang
 - Architecture Decision Records under `docs/adr/`, covering the auth method, sync scope, conflict resolution, sync triggers, gist discovery, the pure-core/glue split, and the status bar UI.
 - Installed-extensions sync: full two-way mirror (install/uninstall follows whichever side changed most recently), sharing the same gist, watcher/poll triggers, and last-write-wins rule as `settings.json`. Installs and uninstalls apply silently, with a notification and full logging of what changed — see [ADR 0009](https://kludw.github.io/vscodium-sync/adr/0009-sync-installed-extensions.html) for the trade-off this accepts.
 
+### Changed
+
+- Standardised notifications: settings and extensions now go through the exact same flow (`notifySynced`) — same message shape, same "View Diff" action, same before/after diff editor. Extensions previously got a different, count-only notification with a "Show Log" action instead of a diff; that's gone in favour of one consistent behaviour, documented as a single flow in [Usage](https://kludw.github.io/vscodium-sync/usage.html#notifications).
+
+### Fixed
+
+- Extensions sync didn't notify when it pushed a local install/uninstall up to the gist — only a pull (something arriving from elsewhere) showed a notification. Fixed by the standardisation above, since push now follows the same notified flow settings.json already had.
+- An extensions pull could report `pull` and fire a notification even when the computed diff was empty (nothing actually installed or uninstalled). `sync/engine.ts` now downgrades that case to `none`, matching how settings.json already handled an unchanged pull.
+
 [Unreleased]: https://github.com/kludw/vscodium-sync/commits/master
