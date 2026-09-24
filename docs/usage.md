@@ -1,3 +1,7 @@
+---
+title: Usage
+---
+
 # Usage
 
 ## Status bar
@@ -17,7 +21,7 @@ Click the status bar item, or run **VSCodium Sync: Show Status** from the Comman
 - **Sync Now** — trigger a sync immediately, without waiting for the watcher or the next poll.
 - **Open Settings JSON** — jumps straight to your `settings.json` (same as the built-in `workbench.action.openSettingsJson` command).
 - **Open Gist on GitHub** — opens the linked gist in your browser. Only shown once a gist has been linked (i.e. not on the very first, still-in-progress sync).
-- **Show Sync Log** — opens the `VSCodium Sync` output channel (see [Troubleshooting](./troubleshooting.md#reading-the-log)).
+- **Show Sync Log** — opens the `VSCodium Sync` output channel (see [Troubleshooting](./troubleshooting.html#reading-the-log)).
 
 ## What triggers a sync
 
@@ -41,4 +45,4 @@ Whenever a sync actually changes something, you get a notification with a **View
 
 ## Conflict resolution
 
-If both your local `settings.json` and the gist changed since the last sync, **the more recently modified one wins** and silently overwrites the other — there's no merge prompt. See [Architecture](./architecture.md#conflict-resolution) for the exact rule.
+If both your local `settings.json` and the gist changed since the last sync, **the more recently modified one wins** and silently overwrites the other — there's no merge prompt. See [Architecture](./architecture.html#conflict-resolution) for the exact rule.

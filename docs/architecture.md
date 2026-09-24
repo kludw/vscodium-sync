@@ -1,3 +1,7 @@
+---
+title: Architecture
+---
+
 # Architecture
 
 ## Module map
@@ -24,7 +28,7 @@ src/
     notifications.ts           toast + diff view (glue, untested)
 ```
 
-See [Testing](./testing.md) for why the split lands exactly there.
+See [Testing](./testing.html) for why the split lands exactly there.
 
 ## The sync algorithm
 
@@ -59,7 +63,7 @@ The decision is made by the pure function `decideSyncAction(localMtimeMs, remote
 | No | Yes | `pull` |
 | Yes | Yes | whichever timestamp is newer wins; an exact tie favours local (`push`) |
 
-This is **last-write-wins** — the loser is silently overwritten, no merge, no prompt. See [Usage](./usage.md#conflict-resolution) for the user-facing consequence.
+This is **last-write-wins** — the loser is silently overwritten, no merge, no prompt. See [Usage](./usage.html#conflict-resolution) for the user-facing consequence.
 
 ## Where state lives
 

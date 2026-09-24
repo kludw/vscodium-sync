@@ -1,3 +1,7 @@
+---
+title: Testing
+---
+
 # Testing
 
 ## Running the suite
@@ -11,7 +15,7 @@ As of this writing: **19 tests, 41 assertions, across 4 files** — `github/clie
 
 ## What's tested, and what isn't
 
-The codebase is deliberately split so that everything with real branching logic is pure TypeScript, and everything that talks to `vscode` is a thin pass-through. See [Architecture](./architecture.md#module-map) for the file layout this produces.
+The codebase is deliberately split so that everything with real branching logic is pure TypeScript, and everything that talks to `vscode` is a thin pass-through. See [Architecture](./architecture.html#module-map) for the file layout this produces.
 
 **Unit tested (the pure core):**
 
@@ -22,7 +26,7 @@ The codebase is deliberately split so that everything with real branching logic 
 
 **Not unit tested (the vscode glue):** `src/extension.ts` and everything in `src/status/` (`statusBar.ts`, `menu.ts`, `notifications.ts`). These call `vscode.window`, `vscode.authentication`, `vscode.commands`, etc., which only exist inside a real (or `@vscode/test-electron`-simulated) extension host — running them requires infrastructure this project doesn't currently have. They're kept intentionally small and declarative (wire callbacks together, format a string, call one `vscode.*` API) specifically so that the risk of leaving them untested stays low — any logic with a decision to get wrong (conflict resolution, gist discovery, path resolution) lives in the tested core instead.
 
-Practically: these files are verified by building (`bun run build`) and running the extension for real in a VSCodium Extension Development Host (see [Getting Started](./getting-started.md#run-it)), not by an automated suite.
+Practically: these files are verified by building (`bun run build`) and running the extension for real in a VSCodium Extension Development Host (see [Getting Started](./getting-started.html#run-it)), not by an automated suite.
 
 ## TDD workflow
 
