@@ -26,6 +26,7 @@ Notable changes to this project, following [Keep a Changelog](https://keepachang
 - The synced extensions list is now one ID per line (`JSON.stringify(ids, null, 2)`) instead of a single-line array, in both `vscodium-sync-extensions.json` on GitHub and the View Diff editor — a one-line array made every change highlight the whole line.
 - The status menu's "Open Settings Gist" and "Open Extensions Gist" are one item again, "Open Sync Gist" — both pointed at the same gist, so the split was redundant.
 - Poll interval shortened from 60s to 15s, so remote changes show up faster — see [ADR 0004](https://kludw.github.io/vscodium-sync/adr/0004-watch-and-poll-for-two-way-sync.html).
+- `sync/engine.ts` internals modularised: settings and extensions now share one `syncTarget(content, target, action)` function instead of two near-identical inline push/pull blocks, with each item adapted into a common shape via `resolveSettingsTarget`/`resolveExtensionsTarget`. No behaviour change — same 33 tests pass unchanged. Declarations within `sync/` are now ordered alphabetically throughout.
 
 ### Fixed
 

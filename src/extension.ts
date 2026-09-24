@@ -78,21 +78,21 @@ export async function activate(
 		const extensionsBeforeSync = readLocalExtensions();
 		try {
 			const outcome = await performSync({
-				token: session.accessToken,
-				store,
+				extensions: {
+					applyDiff: (diff) => applyExtensionsDiff(diff, log),
+					getLocalChangedAtMs: () => extensionsChangedAtMs,
+					readLocal: readLocalExtensions,
+				},
 				settings: {
+					getLocalChangedAtMs: () => statSync(settingsPath).mtimeMs,
 					readLocal: () => readFileSync(settingsPath, "utf8"),
 					writeLocal: (content) => {
 						writingLocally = true;
 						writeFileSync(settingsPath, content, "utf8");
 					},
-					getLocalChangedAtMs: () => statSync(settingsPath).mtimeMs,
 				},
-				extensions: {
-					readLocal: readLocalExtensions,
-					applyDiff: (diff) => applyExtensionsDiff(diff, log),
-					getLocalChangedAtMs: () => extensionsChangedAtMs,
-				},
+				store,
+				token: session.accessToken,
 			});
 			log.info(
 				`Sync finished: settings=${outcome.settings.action}, extensions=${outcome.extensions.action}` +

@@ -1,6 +1,7 @@
 import {
 	createSyncGist,
 	findSyncGist,
+	type GistFilesPatch,
 	type GistInfo,
 	GitHubApiError,
 	getGist,
@@ -9,11 +10,46 @@ import {
 import { decideSyncAction, type SyncAction } from "./conflict";
 import { computeExtensionDiff, type ExtensionsDiff } from "./extensions";
 
+export interface ExtensionsSyncDeps {
+	applyDiff: (diff: ExtensionsDiff) => Promise<void>;
+	getLocalChangedAtMs: () => number;
+	readLocal: () => string;
+}
+
+interface PullResult {
+	changed: boolean;
+	diff?: ExtensionsDiff;
+}
+
+export interface SettingsSyncDeps {
+	getLocalChangedAtMs: () => number;
+	readLocal: () => string;
+	writeLocal: (content: string) => void;
+}
+
+export interface SyncDeps {
+	extensions: ExtensionsSyncDeps;
+	settings: SettingsSyncDeps;
+	store: SyncStateStore;
+	token: string;
+}
+
+export interface SyncOutcome {
+	extensions: {
+		action: SyncAction;
+		diff?: ExtensionsDiff;
+		remoteContentBeforePush?: string;
+	};
+	/** Set only on the sync that first links a gist to this machine. */
+	linked?: "found" | "created";
+	settings: { action: SyncAction; remoteContentBeforePush?: string };
+}
+
 export interface SyncState {
+	extensionsLastSyncedAtMs: number | undefined;
 	gistId: string | undefined;
 	gistUrl: string | undefined;
 	settingsLastSyncedAtMs: number | undefined;
-	extensionsLastSyncedAtMs: number | undefined;
 }
 
 export interface SyncStateStore {
@@ -21,33 +57,85 @@ export interface SyncStateStore {
 	update(patch: Partial<SyncState>): Promise<void>;
 }
 
-export interface SettingsSyncDeps {
-	readLocal: () => string;
-	writeLocal: (content: string) => void;
+/** A target's local side, normalised to one shape `syncTarget` can drive regardless of what syncing it actually means. */
+interface SyncTarget {
 	getLocalChangedAtMs: () => number;
-}
-
-export interface ExtensionsSyncDeps {
+	pull: (remoteContent: string) => Promise<PullResult>;
 	readLocal: () => string;
-	applyDiff: (diff: ExtensionsDiff) => Promise<void>;
-	getLocalChangedAtMs: () => number;
 }
 
-export interface SyncDeps {
-	token: string;
-	store: SyncStateStore;
-	settings: SettingsSyncDeps;
-	extensions: ExtensionsSyncDeps;
+async function adoptExistingGist(
+	deps: SyncDeps,
+	existing: GistInfo,
+): Promise<SyncOutcome> {
+	const extensionsTarget = resolveExtensionsTarget(deps.extensions);
+	const settingsTarget = resolveSettingsTarget(deps.settings);
+
+	const settingsResult = await syncTarget(
+		existing.settingsContent,
+		settingsTarget,
+		"pull",
+	);
+	const extensionsAction: SyncAction =
+		existing.extensionsContent === undefined ? "push" : "pull";
+	const extensionsResult = await syncTarget(
+		existing.extensionsContent,
+		extensionsTarget,
+		extensionsAction,
+	);
+
+	const patch: GistFilesPatch = {};
+	if (extensionsResult.patchContent !== undefined)
+		patch.extensions = extensionsResult.patchContent;
+
+	const gistUrl =
+		patch.extensions !== undefined
+			? (await updateSyncGist(deps.token, existing.id, patch)).htmlUrl
+			: existing.htmlUrl;
+
+	await deps.store.update({
+		extensionsLastSyncedAtMs: Date.now(),
+		gistId: existing.id,
+		gistUrl,
+		settingsLastSyncedAtMs: Date.now(),
+	});
+
+	return {
+		extensions: {
+			action: extensionsResult.action,
+			diff: extensionsResult.diff,
+			remoteContentBeforePush: extensionsResult.remoteContentBeforePush,
+		},
+		linked: "found",
+		settings: {
+			action: settingsResult.action,
+			remoteContentBeforePush: settingsResult.remoteContentBeforePush,
+		},
+	};
 }
 
-export interface SyncOutcome {
-	/** Set only on the sync that first links a gist to this machine. */
-	linked?: "found" | "created";
-	settings: { action: SyncAction; remoteContentBeforePush?: string };
-	extensions: {
-		action: SyncAction;
-		remoteContentBeforePush?: string;
-		diff?: ExtensionsDiff;
+async function linkGist(deps: SyncDeps): Promise<SyncOutcome> {
+	const existing = await findSyncGist(deps.token);
+
+	if (existing) {
+		return adoptExistingGist(deps, existing);
+	}
+
+	const created = await createSyncGist(
+		deps.token,
+		deps.settings.readLocal(),
+		deps.extensions.readLocal(),
+	);
+	await deps.store.update({
+		extensionsLastSyncedAtMs: Date.now(),
+		gistId: created.id,
+		gistUrl: created.htmlUrl,
+		settingsLastSyncedAtMs: Date.now(),
+	});
+	return {
+		extensions: { action: "push" },
+		linked: "created",
+		settings: { action: "push" },
 	};
 }
 
@@ -69,8 +157,11 @@ export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
 		throw error;
 	}
 
+	const extensionsTarget = resolveExtensionsTarget(deps.extensions);
+	const settingsTarget = resolveSettingsTarget(deps.settings);
+
 	const settingsAction = decideSyncAction(
-		deps.settings.getLocalChangedAtMs(),
+		settingsTarget.getLocalChangedAtMs(),
 		remote.updatedAtMs,
 		state.settingsLastSyncedAtMs ?? 0,
 	);
@@ -78,157 +169,101 @@ export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
 		remote.extensionsContent === undefined
 			? "push"
 			: decideSyncAction(
-					deps.extensions.getLocalChangedAtMs(),
+					extensionsTarget.getLocalChangedAtMs(),
 					remote.updatedAtMs,
 					state.extensionsLastSyncedAtMs ?? 0,
 				);
 
-	const outcome = await applyActions(
-		deps,
-		remote,
+	const settingsResult = await syncTarget(
+		remote.settingsContent,
+		settingsTarget,
 		settingsAction,
+	);
+	const extensionsResult = await syncTarget(
+		remote.extensionsContent,
+		extensionsTarget,
 		extensionsAction,
 	);
 
-	await deps.store.update({
-		gistUrl: remote.htmlUrl,
-		settingsLastSyncedAtMs: Date.now(),
-		extensionsLastSyncedAtMs: Date.now(),
-	});
-
-	return outcome;
-}
-
-async function applyActions(
-	deps: SyncDeps,
-	remote: GistInfo,
-	settingsAction: SyncAction,
-	extensionsAction: SyncAction,
-): Promise<SyncOutcome> {
-	const patch: { settings?: string; extensions?: string } = {};
-	let remoteContentBeforePush: string | undefined;
-	let resolvedSettingsAction = settingsAction;
-
-	if (settingsAction === "push") {
-		const localContent = deps.settings.readLocal();
-		if (localContent === remote.settingsContent) {
-			resolvedSettingsAction = "none";
-		} else {
-			patch.settings = localContent;
-			remoteContentBeforePush = remote.settingsContent;
-		}
-	} else if (settingsAction === "pull") {
-		const localContent = deps.settings.readLocal();
-		if (localContent === (remote.settingsContent ?? "")) {
-			resolvedSettingsAction = "none";
-		} else {
-			deps.settings.writeLocal(remote.settingsContent ?? "");
-		}
-	}
-
-	let resolvedExtensionsAction = extensionsAction;
-	let extensionsDiff: ExtensionsDiff | undefined;
-	let extensionsRemoteContentBeforePush: string | undefined;
-
-	if (extensionsAction === "push") {
-		const localContent = deps.extensions.readLocal();
-		if (localContent === (remote.extensionsContent ?? "")) {
-			resolvedExtensionsAction = "none";
-		} else {
-			patch.extensions = localContent;
-			extensionsRemoteContentBeforePush = remote.extensionsContent;
-		}
-	} else if (extensionsAction === "pull") {
-		const diff = computeExtensionDiff(
-			deps.extensions.readLocal(),
-			remote.extensionsContent,
-		);
-		if (diff.toInstall.length === 0 && diff.toUninstall.length === 0) {
-			resolvedExtensionsAction = "none";
-		} else {
-			await deps.extensions.applyDiff(diff);
-			extensionsDiff = diff;
-		}
-	}
+	const patch: GistFilesPatch = {};
+	if (settingsResult.patchContent !== undefined)
+		patch.settings = settingsResult.patchContent;
+	if (extensionsResult.patchContent !== undefined)
+		patch.extensions = extensionsResult.patchContent;
 
 	if (patch.settings !== undefined || patch.extensions !== undefined) {
 		await updateSyncGist(deps.token, remote.id, patch);
 	}
 
+	await deps.store.update({
+		extensionsLastSyncedAtMs: Date.now(),
+		gistUrl: remote.htmlUrl,
+		settingsLastSyncedAtMs: Date.now(),
+	});
+
 	return {
-		settings: { action: resolvedSettingsAction, remoteContentBeforePush },
 		extensions: {
-			action: resolvedExtensionsAction,
-			remoteContentBeforePush: extensionsRemoteContentBeforePush,
-			diff: extensionsDiff,
+			action: extensionsResult.action,
+			diff: extensionsResult.diff,
+			remoteContentBeforePush: extensionsResult.remoteContentBeforePush,
+		},
+		settings: {
+			action: settingsResult.action,
+			remoteContentBeforePush: settingsResult.remoteContentBeforePush,
 		},
 	};
 }
 
-async function linkGist(deps: SyncDeps): Promise<SyncOutcome> {
-	const existing = await findSyncGist(deps.token);
-
-	if (existing) {
-		return adoptExistingGist(deps, existing);
-	}
-
-	const created = await createSyncGist(
-		deps.token,
-		deps.settings.readLocal(),
-		deps.extensions.readLocal(),
-	);
-	await deps.store.update({
-		gistId: created.id,
-		gistUrl: created.htmlUrl,
-		settingsLastSyncedAtMs: Date.now(),
-		extensionsLastSyncedAtMs: Date.now(),
-	});
+function resolveExtensionsTarget(deps: ExtensionsSyncDeps): SyncTarget {
 	return {
-		linked: "created",
-		settings: { action: "push" },
-		extensions: { action: "push" },
+		getLocalChangedAtMs: deps.getLocalChangedAtMs,
+		pull: async (remoteContent) => {
+			const diff = computeExtensionDiff(deps.readLocal(), remoteContent);
+			if (diff.toInstall.length === 0 && diff.toUninstall.length === 0)
+				return { changed: false };
+			await deps.applyDiff(diff);
+			return { changed: true, diff };
+		},
+		readLocal: deps.readLocal,
 	};
 }
 
-async function adoptExistingGist(
-	deps: SyncDeps,
-	existing: GistInfo,
-): Promise<SyncOutcome> {
-	deps.settings.writeLocal(existing.settingsContent ?? "");
-
-	let extensionsOutcome: SyncOutcome["extensions"];
-	let gistUrl = existing.htmlUrl;
-
-	if (existing.extensionsContent === undefined) {
-		const localExtensions = deps.extensions.readLocal();
-		const updated = await updateSyncGist(deps.token, existing.id, {
-			extensions: localExtensions,
-		});
-		gistUrl = updated.htmlUrl;
-		extensionsOutcome = { action: "push" };
-	} else {
-		const diff = computeExtensionDiff(
-			deps.extensions.readLocal(),
-			existing.extensionsContent,
-		);
-		if (diff.toInstall.length === 0 && diff.toUninstall.length === 0) {
-			extensionsOutcome = { action: "none" };
-		} else {
-			await deps.extensions.applyDiff(diff);
-			extensionsOutcome = { action: "pull", diff };
-		}
-	}
-
-	await deps.store.update({
-		gistId: existing.id,
-		gistUrl,
-		settingsLastSyncedAtMs: Date.now(),
-		extensionsLastSyncedAtMs: Date.now(),
-	});
-
+function resolveSettingsTarget(deps: SettingsSyncDeps): SyncTarget {
 	return {
-		linked: "found",
-		settings: { action: "pull" },
-		extensions: extensionsOutcome,
+		getLocalChangedAtMs: deps.getLocalChangedAtMs,
+		pull: async (remoteContent) => {
+			if (deps.readLocal() === remoteContent) return { changed: false };
+			deps.writeLocal(remoteContent);
+			return { changed: true };
+		},
+		readLocal: deps.readLocal,
 	};
+}
+
+/** The one place push/pull actually happens, for either target: given what the remote currently holds and which action was decided, apply it and report what happened. */
+async function syncTarget(
+	content: string | undefined,
+	target: SyncTarget,
+	action: SyncAction,
+): Promise<{
+	action: SyncAction;
+	diff?: ExtensionsDiff;
+	patchContent?: string;
+	remoteContentBeforePush?: string;
+}> {
+	if (action === "push") {
+		const localContent = target.readLocal();
+		if (localContent === (content ?? "")) return { action: "none" };
+		return {
+			action: "push",
+			patchContent: localContent,
+			remoteContentBeforePush: content,
+		};
+	}
+	if (action === "pull") {
+		const result = await target.pull(content ?? "");
+		if (!result.changed) return { action: "none" };
+		return { action: "pull", diff: result.diff };
+	}
+	return { action: "none" };
 }
