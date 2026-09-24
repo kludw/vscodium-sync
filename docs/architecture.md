@@ -52,6 +52,10 @@ This is what makes multi-machine setup zero-config: the second machine just need
 
 Once a gist is linked, every sync fetches the gist **once** (one `GET`, both files come back together), then decides an action independently for each item, and — if either needs to push — sends **one** combined `PATCH` covering whichever changed.
 
+### Recovering from a missing gist
+
+If that `GET` 404s — the linked gist was deleted, or is no longer accessible to the signed-in account — `performSync` re-runs the "first run" linking flow above instead of failing, as if `state.gistId` had never been set. See [ADR 0010](./adr/0010-recover-from-missing-gist.html) for why, and why only a 404 specifically triggers this (any other error still fails the sync normally).
+
 ### Conflict resolution
 
 Each item's action is decided by the same pure function, `decideSyncAction(localChangedAtMs, remoteUpdatedAtMs, lastSyncedAtMs)` in `src/sync/conflict.ts`:

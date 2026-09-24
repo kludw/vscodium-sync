@@ -27,6 +27,14 @@ The status bar item only appears once GitHub sign-in succeeds (see `src/extensio
 2. Confirm your GitHub account actually granted the `gist` scope during sign-in — VS Code's account menu (bottom-left) shows what's currently authorised.
 3. Confirm you have network access to `api.github.com`.
 
+## The linked gist is gone (404 error)
+
+Seeing `VSCodium Sync failed: GitHub API error 404: ...get-a-gist...`? If you deleted the linked gist (or it's otherwise inaccessible — e.g. a different GitHub account is now signed in than the one that created it), the next sync recovers on its own: a `404` fetching the previously-linked gist is treated as "no gist linked yet," and the extension re-runs the same discovery-or-create flow a fresh install would — see [ADR 0010](./adr/0010-recover-from-missing-gist.html). You'll see `linked: created` (or `linked: found`, if another marker gist exists under the current account) in the log, and the usual first-time-setup notification.
+
+Worth knowing: the old gist's content is gone for good — this creates a *new* gist from whatever's currently on this machine, it doesn't restore the deleted one. And if the 404 was actually caused by the wrong GitHub account being signed in, this will create a new gist under that account rather than telling you the account is wrong — check the account VS Code's account menu shows if that seems off.
+
+Any other error (network failure, a 5xx from GitHub, etc.) does **not** trigger this — it fails normally and retries next cycle, same as before.
+
 ## I see a `vscodiumSync.*` key in my real `settings.json`
 
 This extension **never** writes to `settings.json` or to workspace/user configuration — it only reads and overwrites the file's content wholesale during a push/pull, and it only persists its own state (`gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `extensionsLastSyncedAtMs`) via VS Code's internal `context.globalState`, not as a setting. See [Architecture](./architecture.html#where-state-lives).
@@ -45,6 +53,6 @@ Extension sync mirrors fully and installs/uninstalls silently by design — see 
 
 Check the log for `Failed to install extension ...` — one failure (e.g. an extension not available on your configured marketplace/registry) doesn't block the rest of the sync; every other pending install/uninstall still runs.
 
-## Starting over
+## Starting over (without deleting the gist)
 
-The linked gist ID lives in this machine's VS Code global state, not in a file you can easily edit by hand. To force the extension to re-discover or re-create a gist on this machine, you'd need to clear its extension storage (e.g. via **Developer: Reload Window** after uninstalling/reinstalling, or by removing this extension's entry from VS Code's global state store) — there's no dedicated "reset" command yet.
+If the linked gist still exists but you want this machine to stop using it — switch to a different GitHub account's gist, for instance — deleting the gist itself and letting [the recovery above](#the-linked-gist-is-gone-404-error) kick in would affect every other machine sharing it too. To unlink just this one machine instead, you'd need to clear its extension storage directly (e.g. via **Developer: Reload Window** after uninstalling/reinstalling, or by removing this extension's entry from VS Code's global state store) — there's no dedicated "reset" command yet.

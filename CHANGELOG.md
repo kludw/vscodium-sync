@@ -11,7 +11,7 @@ Notable changes to this project, following [Keep a Changelog](https://keepachang
 - GitHub sign-in via VS Code's built-in GitHub authentication provider (`gist` scope) — no token entry, no OAuth app to register.
 - Last-write-wins conflict resolution by timestamp.
 - Local → remote sync on file save (debounced file watcher); remote → local sync via 60-second polling; sync also runs once on activation and on demand.
-- Status bar indicator (syncing / synced / error) with a quick-pick menu: Sync Now, Open Settings JSON, Open Settings Gist, Open Extensions Gist, Show Sync Log.
+- Status bar indicator (syncing / synced / error) with a quick-pick menu: Sync Now, Open Settings JSON, Open Sync Gist, Show Sync Log.
 - Notifications on push/pull with a "View Diff" action opening a diff editor against the pre-sync content.
 - `VSCodium Sync` output channel logging sign-in, sync results, and errors.
 - Test suite with 100% function/line coverage on the pure sync core (`github/client.ts`, `sync/conflict.ts`, `sync/engine.ts`, `settings/path.ts`).
@@ -24,10 +24,12 @@ Notable changes to this project, following [Keep a Changelog](https://keepachang
 
 - Standardised notifications: settings and extensions now go through the exact same flow (`notifySynced`) — same message shape, same "View Diff" action, same before/after diff editor. Extensions previously got a different, count-only notification with a "Show Log" action instead of a diff; that's gone in favour of one consistent behaviour, documented as a single flow in [Usage](https://kludw.github.io/vscodium-sync/usage.html#notifications).
 - The synced extensions list is now one ID per line (`JSON.stringify(ids, null, 2)`) instead of a single-line array, in both `vscodium-sync-extensions.json` on GitHub and the View Diff editor — a one-line array made every change highlight the whole line.
+- The status menu's "Open Settings Gist" and "Open Extensions Gist" are one item again, "Open Sync Gist" — both pointed at the same gist, so the split was redundant.
 
 ### Fixed
 
 - Extensions sync didn't notify when it pushed a local install/uninstall up to the gist — only a pull (something arriving from elsewhere) showed a notification. Fixed by the standardisation above, since push now follows the same notified flow settings.json already had.
 - An extensions pull could report `pull` and fire a notification even when the computed diff was empty (nothing actually installed or uninstalled). `sync/engine.ts` now downgrades that case to `none`, matching how settings.json already handled an unchanged pull.
+- A gist that stopped existing (deleted, or the signed-in GitHub account changed) permanently broke sync — every subsequent attempt failed with a `404` and there was no way to recover short of manually clearing extension storage. `performSync` now treats a `404` re-fetching the linked gist as "no gist linked," and re-links automatically. See [ADR 0010](https://kludw.github.io/vscodium-sync/adr/0010-recover-from-missing-gist.html).
 
 [Unreleased]: https://github.com/kludw/vscodium-sync/commits/master

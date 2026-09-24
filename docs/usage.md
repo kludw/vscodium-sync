@@ -20,7 +20,7 @@ Click the status bar item, or run **VSCodium Sync: Show Status** from the Comman
 
 - **Sync Now** — trigger a sync immediately, without waiting for the watcher or the next poll.
 - **Open Settings JSON** — jumps straight to your `settings.json` (same as the built-in `workbench.action.openSettingsJson` command).
-- **Open Settings Gist** / **Open Extensions Gist** — opens the linked gist in your browser, scrolled to the relevant file (both files live in the same gist). Only shown once a gist has been linked (i.e. not on the very first, still-in-progress sync).
+- **Open Sync Gist** — opens the linked gist in your browser (both `settings.json` and the extensions list live in the same gist). Only shown once a gist has been linked (i.e. not on the very first, still-in-progress sync).
 - **Show Sync Log** — opens the `VSCodium Sync` output channel (see [Troubleshooting](./troubleshooting.html#reading-the-log)).
 
 ## What triggers a sync

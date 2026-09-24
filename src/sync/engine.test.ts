@@ -242,6 +242,84 @@ describe("performSync — gist already linked", () => {
 		};
 	}
 
+	test("re-links by creating a new gist when the linked gist is gone (404)", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(
+			async () => new Response("Not Found", { status: 404 }),
+		);
+		fetchSpy.mockImplementationOnce(async () => jsonResponse([]));
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "gist-2",
+				updated_at: "2024-07-01T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/gist-2",
+				files: {
+					[SETTINGS_FILENAME]: { content: '{"local":true}' },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+				},
+			}),
+		);
+
+		const store = fakeStore(linkedState());
+
+		const outcome = await performSync({
+			token: "tok",
+			store,
+			settings: {
+				readLocal: () => '{"local":true}',
+				writeLocal: () => {
+					throw new Error(
+						"should not write local when re-creating from local content",
+					);
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-05-01T00:00:00.000Z"),
+			},
+			extensions: {
+				readLocal: () => '["a.one"]',
+				applyDiff: async () => {
+					throw new Error(
+						"should not apply a diff when re-creating from local content",
+					);
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-05-01T00:00:00.000Z"),
+			},
+		});
+
+		expect(outcome.linked).toBe("created");
+		expect(outcome.settings.action).toBe("push");
+		expect(outcome.extensions.action).toBe("push");
+		expect(store.state.gistId).toBe("gist-2");
+		expect(store.state.gistUrl).toBe("https://gist.github.com/someone/gist-2");
+	});
+
+	test("re-throws a non-404 error instead of re-linking", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(
+			async () => new Response("server error", { status: 500 }),
+		);
+
+		const store = fakeStore(linkedState());
+
+		await expect(
+			performSync({
+				token: "tok",
+				store,
+				settings: {
+					readLocal: () => "x",
+					writeLocal: () => {},
+					getLocalChangedAtMs: () => 0,
+				},
+				extensions: {
+					readLocal: () => "[]",
+					applyDiff: async () => {},
+					getLocalChangedAtMs: () => 0,
+				},
+			}),
+		).rejects.toThrow(/500/);
+		expect(store.state.gistId).toBe("gist-1");
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+	});
+
 	test("pushes settings only when only settings changed locally", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>

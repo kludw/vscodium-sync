@@ -3,6 +3,7 @@ import {
 	createSyncGist,
 	EXTENSIONS_FILENAME,
 	findSyncGist,
+	GitHubApiError,
 	getGist,
 	SETTINGS_FILENAME,
 	updateSyncGist,
@@ -88,13 +89,20 @@ describe("getGist", () => {
 		expect(result.extensionsContent).toBeUndefined();
 	});
 
-	test("throws with status and body on a non-ok response", async () => {
+	test("throws a GitHubApiError with the status and body on a non-ok response", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(
 			async () => new Response("nope", { status: 404 }),
 		);
 
-		await expect(getGist("tok", "missing")).rejects.toThrow(/404/);
+		try {
+			await getGist("tok", "missing");
+			throw new Error("expected getGist to throw");
+		} catch (error) {
+			expect(error).toBeInstanceOf(GitHubApiError);
+			expect((error as GitHubApiError).status).toBe(404);
+			expect((error as GitHubApiError).message).toMatch(/404/);
+		}
 	});
 });
 

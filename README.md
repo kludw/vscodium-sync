@@ -26,7 +26,7 @@ Published at **[kludw.github.io/vscodium-sync](https://kludw.github.io/vscodium-
 ## Development
 
 ```sh
-bun test              # run the test suite (31 tests, 100% coverage on the pure core)
+bun test              # run the test suite (33 tests, 100% coverage on the pure core)
 bun run check          # lint (biome)
 bun run typecheck       # tsc --noEmit
 bun run format           # auto-format

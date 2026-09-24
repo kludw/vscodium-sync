@@ -11,7 +11,7 @@ bun test              # run everything
 bun test --coverage   # with a per-file coverage table
 ```
 
-As of this writing: **31 tests, 79 assertions, across 5 files** — `github/client.test.ts`, `sync/conflict.test.ts`, `sync/engine.test.ts`, `sync/extensions.test.ts`, `settings/path.test.ts` — all passing, with **100% function and line coverage** on the five modules they cover. Run `bun test --coverage` yourself for current numbers; this snapshot will drift as the code grows.
+As of this writing: **33 tests, 89 assertions, across 5 files** — `github/client.test.ts`, `sync/conflict.test.ts`, `sync/engine.test.ts`, `sync/extensions.test.ts`, `settings/path.test.ts` — all passing, with **100% function and line coverage** on the five modules they cover. Run `bun test --coverage` yourself for current numbers; this snapshot will drift as the code grows.
 
 ## What's tested, and what isn't
 
@@ -20,7 +20,7 @@ The codebase is deliberately split so that everything with real branching logic 
 **Unit tested (the pure core):**
 
 - `src/sync/conflict.ts` — every branch of the last-write-wins decision (`none` / `push` / `pull`, plus the tie-break case).
-- `src/sync/engine.ts` — the full two-item sync orchestration: linking a new gist by discovery vs. creation, seeding an extensions file onto a gist that predates it, steady-state push/pull/none for settings and extensions independently, and the content-equality guard that prevents the shared gist timestamp from causing a spurious push or pull — with `global.fetch` mocked (via `bun:test`'s `spyOn`) and every collaborator injected as a fake.
+- `src/sync/engine.ts` — the full two-item sync orchestration: linking a new gist by discovery vs. creation, seeding an extensions file onto a gist that predates it, steady-state push/pull/none for settings and extensions independently, the content-equality guard that prevents the shared gist timestamp from causing a spurious push or pull, and re-linking when a previously-linked gist 404s versus re-throwing any other error — with `global.fetch` mocked (via `bun:test`'s `spyOn`) and every collaborator injected as a fake.
 - `src/sync/extensions.ts` — `computeExtensionDiff`'s install/uninstall set difference, including empty-diff and missing-target cases.
 - `src/github/client.ts` — every gist API call (`findSyncGist`, `createSyncGist`, `getGist`, `updateSyncGist`) across both synced files, including the non-2xx error path, against a mocked `fetch`.
 - `src/settings/path.ts` — path resolution for `darwin`, `win32`, and the Linux/XDG fallback.

@@ -18,6 +18,16 @@ export interface GistFilesPatch {
 	extensions?: string;
 }
 
+export class GitHubApiError extends Error {
+	constructor(
+		public readonly status: number,
+		message: string,
+	) {
+		super(message);
+		this.name = "GitHubApiError";
+	}
+}
+
 interface RawGistFile {
 	content: string;
 }
@@ -44,7 +54,8 @@ async function githubRequest(
 		},
 	});
 	if (!response.ok) {
-		throw new Error(
+		throw new GitHubApiError(
+			response.status,
 			`GitHub API error ${response.status}: ${await response.text()}`,
 		);
 	}

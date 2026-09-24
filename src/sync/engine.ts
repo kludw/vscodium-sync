@@ -2,6 +2,7 @@ import {
 	createSyncGist,
 	findSyncGist,
 	type GistInfo,
+	GitHubApiError,
 	getGist,
 	updateSyncGist,
 } from "../github/client";
@@ -57,7 +58,16 @@ export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
 		return linkGist(deps);
 	}
 
-	const remote = await getGist(deps.token, state.gistId);
+	let remote: GistInfo;
+	try {
+		remote = await getGist(deps.token, state.gistId);
+	} catch (error) {
+		if (error instanceof GitHubApiError && error.status === 404) {
+			// The linked gist is gone (deleted, or no longer accessible to this account) - re-link as if this were a fresh install.
+			return linkGist(deps);
+		}
+		throw error;
+	}
 
 	const settingsAction = decideSyncAction(
 		deps.settings.getLocalChangedAtMs(),
