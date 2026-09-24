@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+
+bunx biome check --write .
+git add -u

@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "module": "esnext",
+    "lib": ["ES2025"],
+    "strict": true,
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["vscode", "node"]
+  },
+  "include": ["src"]
+}

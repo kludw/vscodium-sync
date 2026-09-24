@@ -1,0 +1,12 @@
+{
+    "files.exclude": {
+        "node_modules": true,
+        "dist": true
+    },
+    "cSpell.ignorePaths": [
+        "CLAUDE.md",
+        "bun.lock",
+        ".vscode/",
+        ".husky/"
+    ]
+}

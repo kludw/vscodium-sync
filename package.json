@@ -1,0 +1,29 @@
+{
+  "name": "vscodium-sync",
+  "displayName": "VSCodium Sync",
+  "description": "Minimal scaffold",
+  "version": "0.0.1",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {},
+  "scripts": {
+    "build": "bun build ./src/extension.ts --outdir ./dist --target node --external vscode",
+    "clean": "rm -rf dist/ && rm -rf node_modules/",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^26.6.2",
+    "@types/vscode": "^1.138.0",
+    "husky": "^9.1.7",
+    "typescript": "^7.0.2"
+  }
+}
