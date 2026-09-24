@@ -19,6 +19,7 @@ Notable changes to this project, following [Keep a Changelog](https://keepachang
 - Version list: this changelog.
 - Architecture Decision Records under `docs/adr/`, covering the auth method, sync scope, conflict resolution, sync triggers, gist discovery, the pure-core/glue split, and the status bar UI.
 - Installed-extensions sync: full two-way mirror (install/uninstall follows whichever side changed most recently), sharing the same gist, watcher/poll triggers, and last-write-wins rule as `settings.json`. Installs and uninstalls apply silently, with a notification and full logging of what changed — see [ADR 0009](https://kludw.github.io/vscodium-sync/adr/0009-sync-installed-extensions.html) for the trade-off this accepts.
+- `keybindings.json` sync: two-way mirror through the same gist (`vscodium-sync-keybindings.json`), reusing settings.json's exact design — mtime-based last-write-wins, watcher + poll triggers, key sorting within each array entry (array order itself is left alone, since it affects which binding wins on a conflicting key chord). New "Open Keybindings JSON" item in the status bar menu. No new ADR: this extends the scope [0002](https://kludw.github.io/vscodium-sync/adr/0002-settings-json-only-scope.html) already anticipated, using the design [0011](https://kludw.github.io/vscodium-sync/adr/0011-sort-settings-json-keys.html) already decided.
 
 ### Changed
 

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { EXTENSIONS_FILENAME, SETTINGS_FILENAME } from "../github/client";
+import {
+	EXTENSIONS_FILENAME,
+	KEYBINDINGS_FILENAME,
+	SETTINGS_FILENAME,
+} from "../github/client";
 import { jsonResponse, mockFetch } from "../shared/fetchMock";
 import { performSync, type SyncState, type SyncStateStore } from "./engine";
 
@@ -26,6 +30,7 @@ function noGistState(): SyncState {
 		gistUrl: undefined,
 		settingsLastSyncedAtMs: undefined,
 		extensionsLastSyncedAtMs: undefined,
+		keybindingsLastSyncedAtMs: undefined,
 	};
 }
 
@@ -65,6 +70,11 @@ describe("performSync — no gist linked yet", () => {
 				applyDiff: async () => {},
 				getLocalChangedAtMs: () => 0,
 			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => 0,
+			},
 		});
 
 		expect(outcome.linked).toBe("found");
@@ -77,6 +87,54 @@ describe("performSync — no gist linked yet", () => {
 		});
 		expect(store.state.gistId).toBe("found");
 		expect(store.state.gistUrl).toBe("https://gist.github.com/someone/found");
+	});
+
+	test("adopts an existing gist that already has keybindings: pulls them too", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse([{ id: "found", files: { [SETTINGS_FILENAME]: {} } }]),
+		);
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "found",
+				updated_at: "2024-01-01T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/found",
+				files: {
+					[SETTINGS_FILENAME]: { content: "{}" },
+					[EXTENSIONS_FILENAME]: { content: "[]" },
+					[KEYBINDINGS_FILENAME]: { content: '[{"key":"remote"}]' },
+				},
+			}),
+		);
+
+		const store = fakeStore(noGistState());
+		let writtenKeybindings: string | undefined;
+
+		const outcome = await performSync({
+			token: "tok",
+			store,
+			settings: {
+				readLocal: () => "{}",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => 0,
+			},
+			extensions: {
+				readLocal: () => "[]",
+				applyDiff: async () => {},
+				getLocalChangedAtMs: () => 0,
+			},
+			keybindings: {
+				readLocal: () => '[{"key":"local"}]',
+				writeLocal: (content) => {
+					writtenKeybindings = content;
+				},
+				getLocalChangedAtMs: () => 0,
+			},
+		});
+
+		expect(outcome.keybindings.action).toBe("pull");
+		expect(writtenKeybindings).toBe('[{"key":"remote"}]');
+		expect(fetchSpy).toHaveBeenCalledTimes(2);
 	});
 
 	test("adopts an existing gist whose extensions already match: reports none, never applies a diff", async () => {
@@ -111,6 +169,11 @@ describe("performSync — no gist linked yet", () => {
 				applyDiff: async () => {
 					throw new Error("should not apply an empty diff");
 				},
+				getLocalChangedAtMs: () => 0,
+			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
 				getLocalChangedAtMs: () => 0,
 			},
 		});
@@ -162,6 +225,11 @@ describe("performSync — no gist linked yet", () => {
 				},
 				getLocalChangedAtMs: () => 0,
 			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => 0,
+			},
 		});
 
 		expect(outcome.extensions.action).toBe("push");
@@ -210,6 +278,11 @@ describe("performSync — no gist linked yet", () => {
 				},
 				getLocalChangedAtMs: () => 0,
 			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => 0,
+			},
 		});
 
 		expect(outcome.linked).toBe("created");
@@ -230,6 +303,7 @@ describe("performSync — gist already linked", () => {
 			gistUrl: "https://gist.github.com/someone/gist-1",
 			settingsLastSyncedAtMs: Date.parse("2024-01-01T00:00:00.000Z"),
 			extensionsLastSyncedAtMs: Date.parse("2024-01-01T00:00:00.000Z"),
+			keybindingsLastSyncedAtMs: Date.parse("2024-01-01T00:00:00.000Z"),
 			...overrides,
 		};
 	}
@@ -275,6 +349,11 @@ describe("performSync — gist already linked", () => {
 				},
 				getLocalChangedAtMs: () => Date.parse("2024-05-01T00:00:00.000Z"),
 			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => 0,
+			},
 		});
 
 		expect(outcome.linked).toBe("created");
@@ -304,6 +383,11 @@ describe("performSync — gist already linked", () => {
 				extensions: {
 					readLocal: () => "[]",
 					applyDiff: async () => {},
+					getLocalChangedAtMs: () => 0,
+				},
+				keybindings: {
+					readLocal: () => "",
+					writeLocal: () => {},
 					getLocalChangedAtMs: () => 0,
 				},
 			}),
@@ -354,6 +438,11 @@ describe("performSync — gist already linked", () => {
 				applyDiff: async () => {
 					throw new Error("should not apply a diff when nothing changed");
 				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
 				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
 			},
 		});
@@ -415,6 +504,11 @@ describe("performSync — gist already linked", () => {
 				},
 				getLocalChangedAtMs: () => Date.parse("2024-07-01T00:00:00.000Z"),
 			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
 		});
 
 		expect(outcome.settings.action).toBe("pull");
@@ -460,6 +554,11 @@ describe("performSync — gist already linked", () => {
 				},
 				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
 			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
 		});
 
 		expect(outcome.extensions.action).toBe("none");
@@ -501,11 +600,67 @@ describe("performSync — gist already linked", () => {
 				},
 				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
 			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
 		});
 
 		expect(outcome.settings.action).toBe("none");
 		expect(outcome.extensions.action).toBe("pull");
 		expect(applied).toEqual({ toInstall: ["new.ext"], toUninstall: [] });
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+	});
+
+	test("pulls keybindings when only keybindings changed remotely", async () => {
+		const fetchSpy = mockFetch();
+		fetchSpy.mockImplementationOnce(async () =>
+			jsonResponse({
+				id: "gist-1",
+				updated_at: "2024-06-01T00:00:00.000Z",
+				html_url: "https://gist.github.com/someone/gist-1",
+				files: {
+					[SETTINGS_FILENAME]: { content: "same" },
+					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+					[KEYBINDINGS_FILENAME]: { content: '[{"key":"new"}]' },
+				},
+			}),
+		);
+
+		const store = fakeStore(linkedState());
+		let writtenKeybindings: string | undefined;
+
+		const outcome = await performSync({
+			token: "tok",
+			store,
+			settings: {
+				readLocal: () => "same",
+				writeLocal: () => {
+					throw new Error("should not write local when settings unchanged");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
+			extensions: {
+				readLocal: () => '["a.one"]',
+				applyDiff: async () => {
+					throw new Error("should not apply a diff when extensions unchanged");
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
+			keybindings: {
+				readLocal: () => '[{"key":"old"}]',
+				writeLocal: (content) => {
+					writtenKeybindings = content;
+				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
+			},
+		});
+
+		expect(outcome.settings.action).toBe("none");
+		expect(outcome.extensions.action).toBe("none");
+		expect(outcome.keybindings.action).toBe("pull");
+		expect(writtenKeybindings).toBe('[{"key":"new"}]');
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
 	});
 
@@ -545,6 +700,11 @@ describe("performSync — gist already linked", () => {
 					throw new Error("should not apply a diff");
 				},
 				getLocalChangedAtMs: () => Date.parse("2024-01-20T00:00:00.000Z"),
+			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
+				getLocalChangedAtMs: () => Date.parse("2024-01-01T00:00:00.000Z"),
 			},
 		});
 
@@ -589,6 +749,11 @@ describe("performSync — gist already linked", () => {
 				applyDiff: async () => {
 					throw new Error("should not apply a diff");
 				},
+				getLocalChangedAtMs: () => Date.parse("2024-01-15T00:00:00.000Z"),
+			},
+			keybindings: {
+				readLocal: () => "",
+				writeLocal: () => {},
 				getLocalChangedAtMs: () => Date.parse("2024-01-15T00:00:00.000Z"),
 			},
 		});

@@ -1,6 +1,6 @@
 # VSCodium Sync
 
-Two-way sync of your VSCodium `settings.json` and installed extensions through a private GitHub gist. Auto sync is always on, and there's nothing to configure: install, sign in to GitHub once, done.
+Two-way sync of your VSCodium `settings.json`, `keybindings.json`, and installed extensions through a private GitHub gist. Auto sync is always on, and there's nothing to configure: install, sign in to GitHub once, done.
 
 ## Quick start
 
@@ -26,7 +26,7 @@ Published at **[kludw.github.io/vscodium-sync](https://kludw.github.io/vscodium-
 ## Development
 
 ```sh
-bun test              # run the test suite (38 tests, 100% coverage on the pure core)
+bun test              # run the test suite (43 tests, 100% coverage on the pure core)
 bun run check          # lint (biome)
 bun run typecheck       # tsc --noEmit
 bun run format           # auto-format

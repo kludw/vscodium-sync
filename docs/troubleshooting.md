@@ -37,13 +37,13 @@ Any other error (network failure, a 5xx from GitHub, etc.) does **not** trigger 
 
 ## I see a `vscodiumSync.*` key in my real `settings.json`
 
-This extension **never** writes to `settings.json` or to workspace/user configuration — it only reads and overwrites the file's content wholesale during a push/pull (reformatting/sorting it along the way, see [ADR 0011](./adr/0011-sort-settings-json-keys.html), but never injecting new keys), and it only persists its own state (`gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `extensionsLastSyncedAtMs`) via VS Code's internal `context.globalState`, not as a setting. See [Architecture](./architecture.html#where-state-lives).
+This extension **never** writes to `settings.json`, `keybindings.json`, or to workspace/user configuration — it only reads and overwrites each file's content wholesale during a push/pull (reformatting/sorting it along the way, see [ADR 0011](./adr/0011-sort-settings-json-keys.html), but never injecting new keys), and it only persists its own state (`gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `keybindingsLastSyncedAtMs`, `extensionsLastSyncedAtMs`) via VS Code's internal `context.globalState`, not as a setting. See [Architecture](./architecture.html#where-state-lives).
 
 If you see a key like `vscodiumSync.gistId` sitting in `settings.json`, it was written by something else — most likely a different or earlier version of an extension using the same id prefix (for example, a prior prototype that used `vscode.workspace.getConfiguration().update(...)` instead of `globalState`). It's safe to delete by hand; this extension will not recreate it.
 
-## My `settings.json` keys aren't sorted
+## My `settings.json` or `keybindings.json` keys aren't sorted
 
-They stay unsorted only if the file contains a `// comment` — `JSON.parse` can't parse those, so sorting is silently skipped for that sync and the file keeps syncing as a verbatim, unsorted mirror instead (see [ADR 0011](./adr/0011-sort-settings-json-keys.html)). Otherwise, sorting happens on every sync that touches `settings.json`; if it's still unsorted with no comments present, check the sync log for a `Sync failed` entry around that time.
+They stay unsorted only if the file contains a `// comment` — `JSON.parse` can't parse those, so sorting is silently skipped for that sync and the file keeps syncing as a verbatim, unsorted mirror instead (see [ADR 0011](./adr/0011-sort-settings-json-keys.html)). Otherwise, sorting happens on every sync that touches the file; if it's still unsorted with no comments present, check the sync log for a `Sync failed` entry around that time.
 
 ## Multiple machines aren't finding the same gist
 

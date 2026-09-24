@@ -11,7 +11,7 @@ An ADR records one significant architecture decision: the context that forced it
 | # | Decision | Status |
 | --- | --- | --- |
 | [0001](./0001-github-built-in-authentication.html) | Use VS Code's built-in GitHub authentication provider | Accepted |
-| [0002](./0002-settings-json-only-scope.html) | Limit v1 sync scope to `settings.json` only | Extended by 0009 |
+| [0002](./0002-settings-json-only-scope.html) | Limit v1 sync scope to `settings.json` only | Extended by 0009, and by keybindings.json |
 | [0003](./0003-last-write-wins-conflict-resolution.html) | Last-write-wins conflict resolution by timestamp | Accepted |
 | [0004](./0004-watch-and-poll-for-two-way-sync.html) | Watch local file + poll gist for continuous two-way sync | Accepted |
 | [0005](./0005-zero-config-gist-discovery.html) | Zero-config gist discovery by marker filename | Accepted |

@@ -16,20 +16,22 @@ export interface ExtensionsSyncDeps {
 	readLocal: () => string;
 }
 
-interface PullResult {
-	changed: boolean;
-	diff?: ExtensionsDiff;
-}
-
-export interface SettingsSyncDeps {
+/** A raw file synced by wholesale overwrite - settings.json and keybindings.json both use this shape. */
+export interface FileSyncDeps {
 	getLocalChangedAtMs: () => number;
 	readLocal: () => string;
 	writeLocal: (content: string) => void;
 }
 
+interface PullResult {
+	changed: boolean;
+	diff?: ExtensionsDiff;
+}
+
 export interface SyncDeps {
 	extensions: ExtensionsSyncDeps;
-	settings: SettingsSyncDeps;
+	keybindings: FileSyncDeps;
+	settings: FileSyncDeps;
 	store: SyncStateStore;
 	token: string;
 }
@@ -40,6 +42,7 @@ export interface SyncOutcome {
 		diff?: ExtensionsDiff;
 		remoteContentBeforePush?: string;
 	};
+	keybindings: { action: SyncAction; remoteContentBeforePush?: string };
 	/** Set only on the sync that first links a gist to this machine. */
 	linked?: "found" | "created";
 	settings: { action: SyncAction; remoteContentBeforePush?: string };
@@ -49,6 +52,7 @@ export interface SyncState {
 	extensionsLastSyncedAtMs: number | undefined;
 	gistId: string | undefined;
 	gistUrl: string | undefined;
+	keybindingsLastSyncedAtMs: number | undefined;
 	settingsLastSyncedAtMs: number | undefined;
 }
 
@@ -76,13 +80,23 @@ async function adoptExistingGist(
 	deps: SyncDeps,
 	existing: GistInfo,
 ): Promise<SyncOutcome> {
-	const { extensionsTarget, settingsTarget } = resolveTargets(deps);
+	const { extensionsTarget, keybindingsTarget, settingsTarget } =
+		resolveTargets(deps);
 
 	const settingsResult = await syncTarget(
 		existing.settingsContent,
 		settingsTarget,
 		"pull",
 	);
+
+	const keybindingsAction: SyncAction =
+		existing.keybindingsContent === undefined ? "push" : "pull";
+	const keybindingsResult = await syncTarget(
+		existing.keybindingsContent,
+		keybindingsTarget,
+		keybindingsAction,
+	);
+
 	const extensionsAction: SyncAction =
 		existing.extensionsContent === undefined ? "push" : "pull";
 	const extensionsResult = await syncTarget(
@@ -92,17 +106,24 @@ async function adoptExistingGist(
 	);
 
 	const patch: GistFilesPatch = {};
+	if (keybindingsResult.patchContent !== undefined)
+		patch.keybindings = keybindingsResult.patchContent;
 	if (extensionsResult.patchContent !== undefined)
 		patch.extensions = extensionsResult.patchContent;
 
 	const gistUrl =
-		patch.extensions !== undefined
+		Object.keys(patch).length > 0
 			? (await updateSyncGist(deps.token, existing.id, patch)).htmlUrl
 			: existing.htmlUrl;
 
 	await touchSyncedAt(deps.store, gistUrl, existing.id);
 
-	return toOutcome(settingsResult, extensionsResult, "found");
+	return toOutcome(
+		settingsResult,
+		keybindingsResult,
+		extensionsResult,
+		"found",
+	);
 }
 
 async function linkGist(deps: SyncDeps): Promise<SyncOutcome> {
@@ -112,14 +133,15 @@ async function linkGist(deps: SyncDeps): Promise<SyncOutcome> {
 		return adoptExistingGist(deps, existing);
 	}
 
-	const created = await createSyncGist(
-		deps.token,
-		deps.settings.readLocal(),
-		deps.extensions.readLocal(),
-	);
+	const created = await createSyncGist(deps.token, {
+		extensions: deps.extensions.readLocal(),
+		keybindings: deps.keybindings.readLocal(),
+		settings: deps.settings.readLocal(),
+	});
 	await touchSyncedAt(deps.store, created.htmlUrl, created.id);
 
-	return toOutcome({ action: "push" }, { action: "push" }, "created");
+	const pushed: TargetResult = { action: "push" };
+	return toOutcome(pushed, pushed, pushed, "created");
 }
 
 export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
@@ -140,13 +162,22 @@ export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
 		throw error;
 	}
 
-	const { extensionsTarget, settingsTarget } = resolveTargets(deps);
+	const { extensionsTarget, keybindingsTarget, settingsTarget } =
+		resolveTargets(deps);
 
 	const settingsAction = decideSyncAction(
 		settingsTarget.getLocalChangedAtMs(),
 		remote.updatedAtMs,
 		state.settingsLastSyncedAtMs ?? 0,
 	);
+	const keybindingsAction =
+		remote.keybindingsContent === undefined
+			? "push"
+			: decideSyncAction(
+					keybindingsTarget.getLocalChangedAtMs(),
+					remote.updatedAtMs,
+					state.keybindingsLastSyncedAtMs ?? 0,
+				);
 	const extensionsAction =
 		remote.extensionsContent === undefined
 			? "push"
@@ -161,6 +192,11 @@ export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
 		settingsTarget,
 		settingsAction,
 	);
+	const keybindingsResult = await syncTarget(
+		remote.keybindingsContent,
+		keybindingsTarget,
+		keybindingsAction,
+	);
 	const extensionsResult = await syncTarget(
 		remote.extensionsContent,
 		extensionsTarget,
@@ -170,16 +206,18 @@ export async function performSync(deps: SyncDeps): Promise<SyncOutcome> {
 	const patch: GistFilesPatch = {};
 	if (settingsResult.patchContent !== undefined)
 		patch.settings = settingsResult.patchContent;
+	if (keybindingsResult.patchContent !== undefined)
+		patch.keybindings = keybindingsResult.patchContent;
 	if (extensionsResult.patchContent !== undefined)
 		patch.extensions = extensionsResult.patchContent;
 
-	if (patch.settings !== undefined || patch.extensions !== undefined) {
+	if (Object.keys(patch).length > 0) {
 		await updateSyncGist(deps.token, remote.id, patch);
 	}
 
 	await touchSyncedAt(deps.store, remote.htmlUrl);
 
-	return toOutcome(settingsResult, extensionsResult);
+	return toOutcome(settingsResult, keybindingsResult, extensionsResult);
 }
 
 function resolveExtensionsTarget(deps: ExtensionsSyncDeps): SyncTarget {
@@ -196,7 +234,7 @@ function resolveExtensionsTarget(deps: ExtensionsSyncDeps): SyncTarget {
 	};
 }
 
-function resolveSettingsTarget(deps: SettingsSyncDeps): SyncTarget {
+function resolveFileTarget(deps: FileSyncDeps): SyncTarget {
 	return {
 		getLocalChangedAtMs: deps.getLocalChangedAtMs,
 		pull: async (remoteContent) => {
@@ -210,15 +248,17 @@ function resolveSettingsTarget(deps: SettingsSyncDeps): SyncTarget {
 
 function resolveTargets(deps: SyncDeps): {
 	extensionsTarget: SyncTarget;
+	keybindingsTarget: SyncTarget;
 	settingsTarget: SyncTarget;
 } {
 	return {
 		extensionsTarget: resolveExtensionsTarget(deps.extensions),
-		settingsTarget: resolveSettingsTarget(deps.settings),
+		keybindingsTarget: resolveFileTarget(deps.keybindings),
+		settingsTarget: resolveFileTarget(deps.settings),
 	};
 }
 
-/** The one place push/pull actually happens, for either target: given what the remote currently holds and which action was decided, apply it and report what happened. */
+/** The one place push/pull actually happens, for any target: given what the remote currently holds and which action was decided, apply it and report what happened. */
 async function syncTarget(
 	content: string | undefined,
 	target: SyncTarget,
@@ -243,6 +283,7 @@ async function syncTarget(
 
 function toOutcome(
 	settingsResult: TargetResult,
+	keybindingsResult: TargetResult,
 	extensionsResult: TargetResult,
 	linked?: "found" | "created",
 ): SyncOutcome {
@@ -251,6 +292,10 @@ function toOutcome(
 			action: extensionsResult.action,
 			diff: extensionsResult.diff,
 			remoteContentBeforePush: extensionsResult.remoteContentBeforePush,
+		},
+		keybindings: {
+			action: keybindingsResult.action,
+			remoteContentBeforePush: keybindingsResult.remoteContentBeforePush,
 		},
 		...(linked ? { linked } : {}),
 		settings: {
@@ -269,6 +314,7 @@ function touchSyncedAt(
 		extensionsLastSyncedAtMs: Date.now(),
 		...(gistId !== undefined ? { gistId } : {}),
 		gistUrl,
+		keybindingsLastSyncedAtMs: Date.now(),
 		settingsLastSyncedAtMs: Date.now(),
 	});
 }

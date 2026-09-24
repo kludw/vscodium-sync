@@ -9,7 +9,7 @@ import {
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 import * as vscode from "vscode";
-import { resolveSettingsPath } from "./settings/path";
+import { resolveKeybindingsPath, resolveSettingsPath } from "./settings/path";
 import { sortJsonKeys } from "./settings/sortJson";
 import { showStatusMenu } from "./status/menu";
 import { notifyCreated, notifySynced } from "./status/notifications";
@@ -26,13 +26,14 @@ const CREATED_MESSAGE = "VSCodium Sync: sync enabled.";
 const EXTENSIONS_LAST_SYNCED_AT_KEY = "vscodiumSync.extensionsLastSyncedAtMs";
 const GIST_ID_KEY = "vscodiumSync.gistId";
 const GIST_URL_KEY = "vscodiumSync.gistUrl";
+const KEYBINDINGS_LAST_SYNCED_AT_KEY = "vscodiumSync.keybindingsLastSyncedAtMs";
 const POLL_INTERVAL_MS = 15_000;
 const SETTINGS_LAST_SYNCED_AT_KEY = "vscodiumSync.settingsLastSyncedAtMs";
 const SHOW_STATUS_COMMAND = "vscodiumSync.showStatus";
 const WATCH_DEBOUNCE_MS = 500;
 
 interface ItemNotificationConfig {
-	id: "settings" | "extensions";
+	id: "settings" | "extensions" | "keybindings";
 	pullDiffTitle: string;
 	pullMessage: string;
 	pushDiffTitle: string;
@@ -47,6 +48,14 @@ const EXTENSIONS_NOTIFICATION: ItemNotificationConfig = {
 	pushMessage: "VSCodium Sync: extensions synced.",
 };
 
+const KEYBINDINGS_NOTIFICATION: ItemNotificationConfig = {
+	id: "keybindings",
+	pullDiffTitle: "keybindings.json: before ↔ after pull",
+	pullMessage: "VSCodium Sync: keybindings were updated.",
+	pushDiffTitle: "keybindings.json: before ↔ after push",
+	pushMessage: "VSCodium Sync: keybindings synced.",
+};
+
 const SETTINGS_NOTIFICATION: ItemNotificationConfig = {
 	id: "settings",
 	pullDiffTitle: "settings.json: before ↔ after pull",
@@ -58,6 +67,8 @@ const SETTINGS_NOTIFICATION: ItemNotificationConfig = {
 interface NotifyOutcomeContext {
 	extensionsAfterSync: string;
 	extensionsBeforeSync: string;
+	keybindingsAfterSync: string;
+	keybindingsBeforeSync: string;
 	log: vscode.LogOutputChannel;
 	settingsAfterSync: string;
 	settingsBeforeSync: string;
@@ -83,20 +94,25 @@ export async function activate(
 	log.info(`Signed in to GitHub as ${session.account.label}.`);
 
 	const settingsPath = resolveSettingsPath(process.platform, homedir());
-	ensureSettingsFileExists(settingsPath);
+	const keybindingsPath = resolveKeybindingsPath(process.platform, homedir());
+	ensureFileExists(settingsPath, "{}\n");
+	ensureFileExists(keybindingsPath, "[]\n");
 	log.debug(`Watching settings file at ${settingsPath}.`);
+	log.debug(`Watching keybindings file at ${keybindingsPath}.`);
 
 	const store = createGlobalStateStore(context);
 	const statusBar = createStatusBar(SHOW_STATUS_COMMAND);
 	context.subscriptions.push(statusBar);
 
-	let writingLocally = false;
+	let writingSettingsLocally = false;
+	let writingKeybindingsLocally = false;
 	let extensionsChangedAtMs = Date.now();
 
 	const sync = async (): Promise<void> => {
 		statusBar.setSyncing();
 		log.info("Sync starting…");
 		const settingsBeforeSync = readSettings(settingsPath);
+		const keybindingsBeforeSync = readKeybindings(keybindingsPath);
 		const extensionsBeforeSync = readLocalExtensions();
 		try {
 			const outcome = await performSync({
@@ -105,11 +121,19 @@ export async function activate(
 					getLocalChangedAtMs: () => extensionsChangedAtMs,
 					readLocal: readLocalExtensions,
 				},
+				keybindings: {
+					getLocalChangedAtMs: () => statSync(keybindingsPath).mtimeMs,
+					readLocal: () => readKeybindings(keybindingsPath),
+					writeLocal: (content) => {
+						writingKeybindingsLocally = true;
+						writeKeybindings(keybindingsPath, content);
+					},
+				},
 				settings: {
 					getLocalChangedAtMs: () => statSync(settingsPath).mtimeMs,
 					readLocal: () => readSettings(settingsPath),
 					writeLocal: (content) => {
-						writingLocally = true;
+						writingSettingsLocally = true;
 						writeSettings(settingsPath, content);
 					},
 				},
@@ -117,7 +141,7 @@ export async function activate(
 				token: session.accessToken,
 			});
 			log.info(
-				`Sync finished: settings=${outcome.settings.action}, extensions=${outcome.extensions.action}` +
+				`Sync finished: settings=${outcome.settings.action}, keybindings=${outcome.keybindings.action}, extensions=${outcome.extensions.action}` +
 					(outcome.linked ? ` (linked: ${outcome.linked}).` : "."),
 			);
 			statusBar.setSynced(Date.now());
@@ -125,6 +149,8 @@ export async function activate(
 			notifyOutcome(outcome, {
 				extensionsAfterSync: readLocalExtensions(),
 				extensionsBeforeSync,
+				keybindingsAfterSync: readKeybindings(keybindingsPath),
+				keybindingsBeforeSync,
 				log,
 				settingsAfterSync: readSettings(settingsPath),
 				settingsBeforeSync,
@@ -155,12 +181,21 @@ export async function activate(
 		debounceHandle = setTimeout(sync, WATCH_DEBOUNCE_MS);
 	};
 
-	const watcher = watch(settingsPath, () => {
-		if (writingLocally) {
-			writingLocally = false;
+	const settingsWatcher = watch(settingsPath, () => {
+		if (writingSettingsLocally) {
+			writingSettingsLocally = false;
 			return;
 		}
 		log.debug("Local settings.json changed, scheduling sync.");
+		scheduleSync();
+	});
+
+	const keybindingsWatcher = watch(keybindingsPath, () => {
+		if (writingKeybindingsLocally) {
+			writingKeybindingsLocally = false;
+			return;
+		}
+		log.debug("Local keybindings.json changed, scheduling sync.");
 		scheduleSync();
 	});
 
@@ -177,7 +212,8 @@ export async function activate(
 
 	context.subscriptions.push(extensionsListener, {
 		dispose: () => {
-			watcher.close();
+			settingsWatcher.close();
+			keybindingsWatcher.close();
 			clearInterval(pollHandle);
 			clearTimeout(debounceHandle);
 		},
@@ -213,6 +249,9 @@ function createGlobalStateStore(
 				),
 				gistId: context.globalState.get<string>(GIST_ID_KEY),
 				gistUrl: context.globalState.get<string>(GIST_URL_KEY),
+				keybindingsLastSyncedAtMs: context.globalState.get<number>(
+					KEYBINDINGS_LAST_SYNCED_AT_KEY,
+				),
 				settingsLastSyncedAtMs: context.globalState.get<number>(
 					SETTINGS_LAST_SYNCED_AT_KEY,
 				),
@@ -228,6 +267,11 @@ function createGlobalStateStore(
 			await updateIfDefined(context, GIST_URL_KEY, patch.gistUrl);
 			await updateIfDefined(
 				context,
+				KEYBINDINGS_LAST_SYNCED_AT_KEY,
+				patch.keybindingsLastSyncedAtMs,
+			);
+			await updateIfDefined(
+				context,
 				SETTINGS_LAST_SYNCED_AT_KEY,
 				patch.settingsLastSyncedAtMs,
 			);
@@ -237,10 +281,10 @@ function createGlobalStateStore(
 
 export function deactivate(): void {}
 
-function ensureSettingsFileExists(settingsPath: string): void {
-	if (existsSync(settingsPath)) return;
-	mkdirSync(dirname(settingsPath), { recursive: true });
-	writeFileSync(settingsPath, "{}\n", "utf8");
+function ensureFileExists(path: string, seedContent: string): void {
+	if (existsSync(path)) return;
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, seedContent, "utf8");
 }
 
 function isBuiltinExtension(extension: vscode.Extension<unknown>): boolean {
@@ -295,12 +339,23 @@ function notifyOutcome(outcome: SyncOutcome, ctx: NotifyOutcomeContext): void {
 		logError,
 	);
 	notifyItemOutcome(
+		KEYBINDINGS_NOTIFICATION,
+		outcome.keybindings,
+		ctx.keybindingsBeforeSync,
+		ctx.keybindingsAfterSync,
+		logError,
+	);
+	notifyItemOutcome(
 		EXTENSIONS_NOTIFICATION,
 		outcome.extensions,
 		ctx.extensionsBeforeSync,
 		ctx.extensionsAfterSync,
 		logError,
 	);
+}
+
+function readKeybindings(keybindingsPath: string): string {
+	return sortJsonKeys(readFileSync(keybindingsPath, "utf8"));
 }
 
 function readLocalExtensions(): string {
@@ -344,6 +399,10 @@ function updateIfDefined<T>(
 	return value === undefined
 		? Promise.resolve()
 		: context.globalState.update(key, value);
+}
+
+function writeKeybindings(keybindingsPath: string, content: string): void {
+	writeFileSync(keybindingsPath, sortJsonKeys(content), "utf8");
 }
 
 function writeSettings(settingsPath: string, content: string): void {

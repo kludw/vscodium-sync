@@ -1,9 +1,24 @@
 import { join as joinPosix } from "node:path/posix";
 import { join as joinWin32 } from "node:path/win32";
 
+export function resolveKeybindingsPath(
+	platform: NodeJS.Platform,
+	homedir: string,
+): string {
+	return resolveUserFilePath(platform, homedir, "keybindings.json");
+}
+
 export function resolveSettingsPath(
 	platform: NodeJS.Platform,
 	homedir: string,
+): string {
+	return resolveUserFilePath(platform, homedir, "settings.json");
+}
+
+function resolveUserFilePath(
+	platform: NodeJS.Platform,
+	homedir: string,
+	filename: string,
 ): string {
 	switch (platform) {
 		case "darwin":
@@ -13,7 +28,7 @@ export function resolveSettingsPath(
 				"Application Support",
 				"VSCodium",
 				"User",
-				"settings.json",
+				filename,
 			);
 		case "win32":
 			return joinWin32(
@@ -22,9 +37,9 @@ export function resolveSettingsPath(
 				"Roaming",
 				"VSCodium",
 				"User",
-				"settings.json",
+				filename,
 			);
 		default:
-			return joinPosix(homedir, ".config", "VSCodium", "User", "settings.json");
+			return joinPosix(homedir, ".config", "VSCodium", "User", filename);
 	}
 }

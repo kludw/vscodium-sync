@@ -6,6 +6,7 @@ import {
 	findSyncGist,
 	GitHubApiError,
 	getGist,
+	KEYBINDINGS_FILENAME,
 	SETTINGS_FILENAME,
 	updateSyncGist,
 } from "./client";
@@ -15,7 +16,7 @@ afterEach(() => {
 });
 
 describe("findSyncGist", () => {
-	test("returns the gist whose files contain the settings marker filename, with both file contents", async () => {
+	test("returns the gist whose files contain the settings marker filename, with all synced file contents", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>
 			jsonResponse([
@@ -31,6 +32,7 @@ describe("findSyncGist", () => {
 				files: {
 					[SETTINGS_FILENAME]: { content: '{"a":1}' },
 					[EXTENSIONS_FILENAME]: { content: '["a.one"]' },
+					[KEYBINDINGS_FILENAME]: { content: "[]" },
 				},
 			}),
 		);
@@ -43,6 +45,7 @@ describe("findSyncGist", () => {
 			htmlUrl: "https://gist.github.com/someone/sync-gist",
 			settingsContent: '{"a":1}',
 			extensionsContent: '["a.one"]',
+			keybindingsContent: "[]",
 		});
 		expect(fetchSpy).toHaveBeenCalledTimes(2);
 		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
@@ -64,7 +67,7 @@ describe("findSyncGist", () => {
 });
 
 describe("getGist", () => {
-	test("leaves extensionsContent undefined when the gist predates extensions support", async () => {
+	test("leaves extensionsContent and keybindingsContent undefined when the gist predates them", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>
 			jsonResponse({
@@ -79,6 +82,7 @@ describe("getGist", () => {
 
 		expect(result.settingsContent).toBe("{}");
 		expect(result.extensionsContent).toBeUndefined();
+		expect(result.keybindingsContent).toBeUndefined();
 	});
 
 	test("throws a GitHubApiError with the status and body on a non-ok response", async () => {
@@ -99,7 +103,7 @@ describe("getGist", () => {
 });
 
 describe("createSyncGist", () => {
-	test("POSTs a private gist with both files", async () => {
+	test("POSTs a private gist with all the given files", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>
 			jsonResponse({
@@ -109,11 +113,16 @@ describe("createSyncGist", () => {
 				files: {
 					[SETTINGS_FILENAME]: { content: '{"b":2}' },
 					[EXTENSIONS_FILENAME]: { content: '["b.two"]' },
+					[KEYBINDINGS_FILENAME]: { content: "[]" },
 				},
 			}),
 		);
 
-		const result = await createSyncGist("tok", '{"b":2}', '["b.two"]');
+		const result = await createSyncGist("tok", {
+			settings: '{"b":2}',
+			extensions: '["b.two"]',
+			keybindings: "[]",
+		});
 
 		expect(result.id).toBe("new-gist");
 		expect(result.htmlUrl).toBe("https://gist.github.com/someone/new-gist");
@@ -124,6 +133,7 @@ describe("createSyncGist", () => {
 		expect(body.public).toBe(false);
 		expect(body.files[SETTINGS_FILENAME].content).toBe('{"b":2}');
 		expect(body.files[EXTENSIONS_FILENAME].content).toBe('["b.two"]');
+		expect(body.files[KEYBINDINGS_FILENAME].content).toBe("[]");
 	});
 });
 
@@ -150,9 +160,10 @@ describe("updateSyncGist", () => {
 		const body = JSON.parse(init.body as string);
 		expect(body.files[SETTINGS_FILENAME].content).toBe('{"c":3}');
 		expect(body.files[EXTENSIONS_FILENAME]).toBeUndefined();
+		expect(body.files[KEYBINDINGS_FILENAME]).toBeUndefined();
 	});
 
-	test("PATCHes both files when both are given", async () => {
+	test("PATCHes all files when all are given", async () => {
 		const fetchSpy = mockFetch();
 		fetchSpy.mockImplementationOnce(async () =>
 			jsonResponse({
@@ -162,6 +173,7 @@ describe("updateSyncGist", () => {
 				files: {
 					[SETTINGS_FILENAME]: { content: '{"c":3}' },
 					[EXTENSIONS_FILENAME]: { content: '["c.three"]' },
+					[KEYBINDINGS_FILENAME]: { content: '[{"key":"a"}]' },
 				},
 			}),
 		);
@@ -169,11 +181,13 @@ describe("updateSyncGist", () => {
 		await updateSyncGist("tok", "gist-1", {
 			settings: '{"c":3}',
 			extensions: '["c.three"]',
+			keybindings: '[{"key":"a"}]',
 		});
 
 		const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
 		const body = JSON.parse(init.body as string);
 		expect(body.files[SETTINGS_FILENAME].content).toBe('{"c":3}');
 		expect(body.files[EXTENSIONS_FILENAME].content).toBe('["c.three"]');
+		expect(body.files[KEYBINDINGS_FILENAME].content).toBe('[{"key":"a"}]');
 	});
 });

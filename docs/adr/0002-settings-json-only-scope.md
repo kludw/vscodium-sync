@@ -4,7 +4,7 @@ title: "ADR 0002: Limit v1 sync scope to settings.json only"
 
 # 0002: Limit v1 sync scope to `settings.json` only
 
-**Status:** Accepted (2026-09-24) — scope extended by [0009](./0009-sync-installed-extensions.html), which adds the installed-extensions list
+**Status:** Accepted (2026-09-24) — scope extended by [0009](./0009-sync-installed-extensions.html) (installed extensions) and by keybindings.json support added 2026-09-24 (reused the design already decided for settings.json — same `FileSyncDeps`/`resolveFileTarget`, same sorting from [0011](./0011-sort-settings-json-keys.html); no new ADR, since there was no new decision to make)
 
 ## Context
 
@@ -17,5 +17,5 @@ v1 syncs only the global `settings.json`. This was the user's explicit choice ov
 ## Consequences
 
 - Much smaller surface for the first working version: one file, one watcher, one conflict-resolution path.
-- Keybindings, snippets, and the extensions list are not synced yet — documented as a known limitation in `docs/index.md`'s Scope section, not hidden.
+- At the time, keybindings, snippets, and the extensions list were not synced yet — documented as a known limitation in `docs/index.md`'s Scope section, not hidden. Extensions and keybindings have since been added (see Status above); only snippets remain out of scope.
 - The gist-discovery and conflict-resolution mechanisms (see [0003](./0003-last-write-wins-conflict-resolution.html), [0005](./0005-zero-config-gist-discovery.html)) aren't `settings.json`-specific — extending scope later means adding more watched files and more marker filenames in the same gist, not a redesign.

@@ -1,7 +1,7 @@
 {
   "name": "vscodium-sync",
   "displayName": "VSCodium Sync",
-  "description": "Two-way sync of VSCodium settings.json and installed extensions via a private GitHub gist, auto-syncing in the background.",
+  "description": "Two-way sync of VSCodium settings.json, keybindings.json, and installed extensions via a private GitHub gist, auto-syncing in the background.",
   "version": "0.0.1",
   "private": true,
   "engines": {

@@ -2,10 +2,12 @@ const API_BASE = "https://api.github.com";
 export const EXTENSIONS_FILENAME = "vscodium-sync-extensions.json";
 const GIST_DESCRIPTION =
 	"VSCodium Sync settings (managed by the VSCodium Sync extension)";
+export const KEYBINDINGS_FILENAME = "vscodium-sync-keybindings.json";
 export const SETTINGS_FILENAME = "vscodium-sync-settings.json";
 
 export interface GistFilesPatch {
 	extensions?: string;
+	keybindings?: string;
 	settings?: string;
 }
 
@@ -13,6 +15,7 @@ export interface GistInfo {
 	extensionsContent: string | undefined;
 	htmlUrl: string;
 	id: string;
+	keybindingsContent: string | undefined;
 	settingsContent: string | undefined;
 	updatedAtMs: number;
 }
@@ -40,18 +43,14 @@ interface RawGistFile {
 
 export async function createSyncGist(
 	token: string,
-	settingsContent: string,
-	extensionsContent: string,
+	files: GistFilesPatch,
 ): Promise<GistInfo> {
 	return requestGistInfo(token, "/gists", {
 		method: "POST",
 		body: JSON.stringify({
 			description: GIST_DESCRIPTION,
 			public: false,
-			files: toFilesPayload({
-				settings: settingsContent,
-				extensions: extensionsContent,
-			}),
+			files: toFilesPayload(files),
 		}),
 	});
 }
@@ -112,10 +111,12 @@ function toFilesPayload(
 	patch: GistFilesPatch,
 ): Record<string, { content: string }> {
 	const files: Record<string, { content: string }> = {};
-	if (patch.settings !== undefined)
-		files[SETTINGS_FILENAME] = { content: patch.settings };
 	if (patch.extensions !== undefined)
 		files[EXTENSIONS_FILENAME] = { content: patch.extensions };
+	if (patch.keybindings !== undefined)
+		files[KEYBINDINGS_FILENAME] = { content: patch.keybindings };
+	if (patch.settings !== undefined)
+		files[SETTINGS_FILENAME] = { content: patch.settings };
 	return files;
 }
 
@@ -124,6 +125,7 @@ function toGistInfo(gist: RawGist): GistInfo {
 		extensionsContent: gist.files[EXTENSIONS_FILENAME]?.content,
 		htmlUrl: gist.html_url,
 		id: gist.id,
+		keybindingsContent: gist.files[KEYBINDINGS_FILENAME]?.content,
 		settingsContent: gist.files[SETTINGS_FILENAME]?.content,
 		updatedAtMs: Date.parse(gist.updated_at),
 	};

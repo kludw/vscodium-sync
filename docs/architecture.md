@@ -12,19 +12,19 @@ The codebase is split into a **pure, unit-tested core** and a **thin VS Code glu
 
 ```
 src/
-  extension.ts            entry point: auth, wiring, watcher, poller (glue, untested)
+  extension.ts            entry point: auth, wiring, watchers, poller (glue, untested)
   github/
-    client.ts              GitHub Gist REST client, both synced files (pure)
+    client.ts              GitHub Gist REST client, all three synced files (pure)
     client.test.ts
   sync/
     conflict.ts             last-write-wins decision (pure)
     conflict.test.ts
-    engine.ts                sync orchestration for both items (pure)
+    engine.ts                sync orchestration for all three items (pure)
     engine.test.ts
     extensions.ts             installed-extensions diff (pure)
     extensions.test.ts
   settings/
-    path.ts                  per-platform settings.json path (pure)
+    path.ts                  per-platform settings.json / keybindings.json paths (pure)
     path.test.ts
     sortJson.ts               recursive JSON key sort, safe no-op on unparsable content (pure)
     sortJson.test.ts
@@ -40,21 +40,21 @@ See [Testing](./testing.html) for why the split lands exactly there. `shared/` i
 
 ## The sync algorithm
 
-`performSync()` in `src/sync/engine.ts` is the whole engine, and it's plain TypeScript with injected dependencies — no `fs`, no `vscode`. It syncs **two independent items sharing one gist**: `settings.json` content and the installed-extensions list. `src/extension.ts` supplies the real `settings`/`extensions` callback objects (read/write/apply, and "when did this last change locally").
+`performSync()` in `src/sync/engine.ts` is the whole engine, and it's plain TypeScript with injected dependencies — no `fs`, no `vscode`. It syncs **three independent items sharing one gist**: `settings.json` content, `keybindings.json` content, and the installed-extensions list. `src/extension.ts` supplies the real `settings`/`keybindings`/`extensions` callback objects (read/write/apply, and "when did this last change locally").
 
 ### First run: linking a gist
 
 If no gist is linked yet (`state.gistId` is unset):
 
 1. Search the signed-in user's gists for one containing a file named `vscodium-sync-settings.json` (the marker filename, `SETTINGS_FILENAME` in `github/client.ts`).
-2. **Found one** → adopt it: overwrite local `settings.json` with the gist's content, and diff/apply the gist's extensions list against what's installed locally (`linked: "found"`). If that gist predates extensions support (no `vscodium-sync-extensions.json` file in it yet), the local extensions list is pushed up to seed it instead of pulled.
-3. **Found none** → create a new private gist containing both files, seeded from local `settings.json` and the local extensions list (`linked: "created"`).
+2. **Found one** → adopt it: overwrite local `settings.json` and `keybindings.json` with the gist's content, and diff/apply the gist's extensions list against what's installed locally (`linked: "found"`). Any file the found gist predates (no `vscodium-sync-keybindings.json` or `vscodium-sync-extensions.json` in it yet) is pushed up from local content to seed it instead of pulled.
+3. **Found none** → create a new private gist containing all three files, seeded from local content (`linked: "created"`).
 
 This is what makes multi-machine setup zero-config: the second machine just needs the same GitHub account — no gist ID to copy anywhere.
 
 ### Steady state: push, pull, or nothing — per item
 
-Once a gist is linked, every sync fetches the gist **once** (one `GET`, both files come back together), then decides an action independently for each item, and — if either needs to push — sends **one** combined `PATCH` covering whichever changed.
+Once a gist is linked, every sync fetches the gist **once** (one `GET`, all three files come back together), then decides an action independently for each item, and — if any need to push — sends **one** combined `PATCH` covering whichever changed.
 
 ### Recovering from a missing gist
 
@@ -73,13 +73,13 @@ Each item's action is decided by the same pure function, `decideSyncAction(local
 
 This is **last-write-wins** — the loser is silently overwritten, no merge, no prompt. See [Usage](./usage.html#conflict-resolution) for the user-facing consequence, and [ADR 0009](./adr/0009-sync-installed-extensions.html) for what "loser" means specifically for extensions (a full mirror — uninstalls propagate too).
 
-**A caveat that shapes the code:** a GitHub gist has one `updated_at` for the whole gist, not one per file. So a change to *either* `settings.json` or the extensions list bumps the timestamp both items compare against, which would otherwise make an unrelated change look like "the other item changed too." `syncTarget()` in `src/sync/engine.ts` guards this: before actually writing a pull or sending a push, it compares content directly and downgrades to `none` if nothing really differs — no spurious write, no spurious notification, no wasted API call. (This was caught by a failing test while building extensions support, not designed upfront — see the engine's test suite.)
+**A caveat that shapes the code:** a GitHub gist has one `updated_at` for the whole gist, not one per file. So a change to *any one* of `settings.json`, `keybindings.json`, or the extensions list bumps the timestamp all three items compare against, which would otherwise make an unrelated change look like "the others changed too." `syncTarget()` in `src/sync/engine.ts` guards this: before actually writing a pull or sending a push, it compares content directly and downgrades to `none` if nothing really differs — no spurious write, no spurious notification, no wasted API call. (This was caught by a failing test while building extensions support, not designed upfront — see the engine's test suite.)
 
-`syncTarget(content, target, action)` is the one place push/pull actually happens, for either item — settings and extensions are both adapted into the same small `SyncTarget` shape (`readLocal`, `getLocalChangedAtMs`, `pull`) by `resolveSettingsTarget`/`resolveExtensionsTarget`, so the push logic and the "did anything really change" check exist exactly once rather than twice. The one genuine difference — a settings pull overwrites a string, an extensions pull computes and applies a diff — stays inside each item's own `pull` implementation, not in `syncTarget` itself, so `computeExtensionDiff` (see below) stays part of the tested core rather than leaking into `src/extension.ts`.
+`syncTarget(content, target, action)` is the one place push/pull actually happens, for any item — settings, keybindings, and extensions are all adapted into the same small `SyncTarget` shape (`readLocal`, `getLocalChangedAtMs`, `pull`) by `resolveFileTarget`/`resolveExtensionsTarget`, so the push logic and the "did anything really change" check exist exactly once rather than three times. Settings and keybindings share one `FileSyncDeps` shape and one `resolveFileTarget` implementation outright — a pull for either is just "overwrite this string." The one genuine difference is extensions, where a pull computes and applies a diff instead; that stays inside `resolveExtensionsTarget`'s own `pull` implementation, not in `syncTarget` itself, so `computeExtensionDiff` (see below) stays part of the tested core rather than leaking into `src/extension.ts`.
 
-### Settings specifically
+### Settings and keybindings specifically
 
-`sortJsonKeys()` in `src/settings/sortJson.ts` recursively sorts object keys (array element order is left alone) before `settings.json` content is used anywhere — read for a push, compared for equality, or written by a pull. Both `readSettings()`/`writeSettings()` in `src/extension.ts` route through it, so local and remote are always compared in the same canonical form, not just sorted at the moment of pushing (see [ADR 0011](./adr/0011-sort-settings-json-keys.html) for why that matters). If the content isn't valid JSON — most likely because it has a `// comment`, which VS Code's `settings.json` allows but `JSON.parse` doesn't — sorting is skipped and the original content passes through unchanged rather than failing the sync.
+`sortJsonKeys()` in `src/settings/sortJson.ts` recursively sorts object keys (array element order is left alone — this matters for `keybindings.json`, which is an array where entry order affects which binding wins on a conflicting key chord) before content is used anywhere — read for a push, compared for equality, or written by a pull. `readSettings()`/`writeSettings()` and `readKeybindings()`/`writeKeybindings()` in `src/extension.ts` all route through it, so local and remote are always compared in the same canonical form, not just sorted at the moment of pushing (see [ADR 0011](./adr/0011-sort-settings-json-keys.html) for why that matters — it applies equally to `keybindings.json`, which VS Code also parses as JSONC). If the content isn't valid JSON — most likely a `// comment` — sorting is skipped and the original content passes through unchanged rather than failing the sync.
 
 ### Extensions specifically
 
@@ -89,7 +89,7 @@ This is **last-write-wins** — the loser is silently overwritten, no merge, no 
 
 ## Where state lives
 
-Four fields — `gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `extensionsLastSyncedAtMs` — are persisted via `context.globalState` in `src/extension.ts`. This is VS Code's own per-machine extension storage (backed by a local SQLite database), and it is **never** written into `settings.json` or synced as a workspace/user setting. The gist's `vscodium-sync-extensions.json` file is an exact mirror of the installed-extensions list, and `vscodium-sync-settings.json` a canonicalised mirror of `settings.json` (key-sorted — see [ADR 0011](./adr/0011-sort-settings-json-keys.html)) — nothing is ever injected into either to track sync state.
+Five fields — `gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `keybindingsLastSyncedAtMs`, `extensionsLastSyncedAtMs` — are persisted via `context.globalState` in `src/extension.ts`. This is VS Code's own per-machine extension storage (backed by a local SQLite database), and it is **never** written into `settings.json`, `keybindings.json`, or synced as a workspace/user setting. The gist's `vscodium-sync-extensions.json` file is an exact mirror of the installed-extensions list, and `vscodium-sync-settings.json`/`vscodium-sync-keybindings.json` are canonicalised mirrors of their local files (key-sorted — see [ADR 0011](./adr/0011-sort-settings-json-keys.html)) — nothing is ever injected into any of them to track sync state.
 
 ## Authentication
 
@@ -97,9 +97,9 @@ Four fields — `gistId`, `gistUrl`, `settingsLastSyncedAtMs`, `extensionsLastSy
 
 ## Diff view
 
-Both `settings.json` and the extensions list notify and diff the same way — `notifySynced()` in `src/status/notifications.ts` is the one function both go through, given a message, a diff title, and explicit before/after content:
+All three items notify and diff the same way — `notifySynced()` in `src/status/notifications.ts` is the one function all of them go through, given a message, a diff title, and explicit before/after content:
 
-- **Settings**: before/after are the file's text content, captured immediately before and after the sync (for a push, "before" is the gist's prior content, returned as `remoteContentBeforePush`; for a pull, "before" is what was on disk before the write).
+- **Settings and keybindings**: before/after are the file's text content, captured immediately before and after the sync (for a push, "before" is the gist's prior content, returned as `remoteContentBeforePush`; for a pull, "before" is what was on disk before the write).
 - **Extensions**: before/after are `readLocalExtensions()`'s JSON output at those same two points — so "View Diff" on an extensions notification shows the ID list changing, exactly the way `computeExtensionDiff` reasoned about it internally.
 
-Both sides are written to temp files (`vscodium-sync-diff-<id>-before.json` / `-after.json`, `id` being `"settings"` or `"extensions"` so the two never collide) and opened via the built-in `vscode.diff` command — no custom diff UI, no content-provider scheme, no per-item special-casing in the notification code itself.
+Both sides are written to temp files (`vscodium-sync-diff-<id>-before.json` / `-after.json`, `id` being `"settings"`, `"keybindings"`, or `"extensions"` so none of the three collide) and opened via the built-in `vscode.diff` command — no custom diff UI, no content-provider scheme, no per-item special-casing in the notification code itself.
