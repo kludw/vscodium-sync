@@ -1,21 +1,20 @@
 const API_BASE = "https://api.github.com";
-
-export const SETTINGS_FILENAME = "vscodium-sync-settings.json";
 export const EXTENSIONS_FILENAME = "vscodium-sync-extensions.json";
 const GIST_DESCRIPTION =
 	"VSCodium Sync settings (managed by the VSCodium Sync extension)";
-
-export interface GistInfo {
-	id: string;
-	updatedAtMs: number;
-	htmlUrl: string;
-	settingsContent: string | undefined;
-	extensionsContent: string | undefined;
-}
+export const SETTINGS_FILENAME = "vscodium-sync-settings.json";
 
 export interface GistFilesPatch {
-	settings?: string;
 	extensions?: string;
+	settings?: string;
+}
+
+export interface GistInfo {
+	extensionsContent: string | undefined;
+	htmlUrl: string;
+	id: string;
+	settingsContent: string | undefined;
+	updatedAtMs: number;
 }
 
 export class GitHubApiError extends Error {
@@ -28,15 +27,53 @@ export class GitHubApiError extends Error {
 	}
 }
 
+interface RawGist {
+	files: Record<string, RawGistFile>;
+	html_url: string;
+	id: string;
+	updated_at: string;
+}
+
 interface RawGistFile {
 	content: string;
 }
 
-interface RawGist {
-	id: string;
-	updated_at: string;
-	html_url: string;
-	files: Record<string, RawGistFile>;
+export async function createSyncGist(
+	token: string,
+	settingsContent: string,
+	extensionsContent: string,
+): Promise<GistInfo> {
+	return requestGistInfo(token, "/gists", {
+		method: "POST",
+		body: JSON.stringify({
+			description: GIST_DESCRIPTION,
+			public: false,
+			files: toFilesPayload({
+				settings: settingsContent,
+				extensions: extensionsContent,
+			}),
+		}),
+	});
+}
+
+export async function findSyncGist(
+	token: string,
+): Promise<GistInfo | undefined> {
+	const response = await githubRequest(token, "/gists?per_page=100");
+	const gists = (await response.json()) as Array<{
+		id: string;
+		files: Record<string, unknown>;
+	}>;
+	const match = gists.find((gist) => SETTINGS_FILENAME in gist.files);
+	if (!match) return undefined;
+	return getGist(token, match.id);
+}
+
+export async function getGist(
+	token: string,
+	gistId: string,
+): Promise<GistInfo> {
+	return requestGistInfo(token, `/gists/${gistId}`);
 }
 
 async function githubRequest(
@@ -62,14 +99,13 @@ async function githubRequest(
 	return response;
 }
 
-function toGistInfo(gist: RawGist): GistInfo {
-	return {
-		id: gist.id,
-		updatedAtMs: Date.parse(gist.updated_at),
-		htmlUrl: gist.html_url,
-		settingsContent: gist.files[SETTINGS_FILENAME]?.content,
-		extensionsContent: gist.files[EXTENSIONS_FILENAME]?.content,
-	};
+async function requestGistInfo(
+	token: string,
+	path: string,
+	init?: RequestInit,
+): Promise<GistInfo> {
+	const response = await githubRequest(token, path, init);
+	return toGistInfo((await response.json()) as RawGist);
 }
 
 function toFilesPayload(
@@ -83,51 +119,14 @@ function toFilesPayload(
 	return files;
 }
 
-export async function findSyncGist(
-	token: string,
-): Promise<GistInfo | undefined> {
-	const response = await githubRequest(token, "/gists?per_page=100");
-	const gists = (await response.json()) as Array<{
-		id: string;
-		files: Record<string, unknown>;
-	}>;
-	const match = gists.find((gist) => SETTINGS_FILENAME in gist.files);
-	if (!match) return undefined;
-	return getGist(token, match.id);
-}
-
-async function requestGistInfo(
-	token: string,
-	path: string,
-	init?: RequestInit,
-): Promise<GistInfo> {
-	const response = await githubRequest(token, path, init);
-	return toGistInfo((await response.json()) as RawGist);
-}
-
-export async function getGist(
-	token: string,
-	gistId: string,
-): Promise<GistInfo> {
-	return requestGistInfo(token, `/gists/${gistId}`);
-}
-
-export async function createSyncGist(
-	token: string,
-	settingsContent: string,
-	extensionsContent: string,
-): Promise<GistInfo> {
-	return requestGistInfo(token, "/gists", {
-		method: "POST",
-		body: JSON.stringify({
-			description: GIST_DESCRIPTION,
-			public: false,
-			files: toFilesPayload({
-				settings: settingsContent,
-				extensions: extensionsContent,
-			}),
-		}),
-	});
+function toGistInfo(gist: RawGist): GistInfo {
+	return {
+		extensionsContent: gist.files[EXTENSIONS_FILENAME]?.content,
+		htmlUrl: gist.html_url,
+		id: gist.id,
+		settingsContent: gist.files[SETTINGS_FILENAME]?.content,
+		updatedAtMs: Date.parse(gist.updated_at),
+	};
 }
 
 export async function updateSyncGist(

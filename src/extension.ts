@@ -21,15 +21,14 @@ import {
 } from "./sync/engine";
 import type { ExtensionsDiff } from "./sync/extensions";
 
-const POLL_INTERVAL_MS = 15_000;
-const WATCH_DEBOUNCE_MS = 500;
+const CREATED_MESSAGE = "VSCodium Sync: sync enabled.";
+const EXTENSIONS_LAST_SYNCED_AT_KEY = "vscodiumSync.extensionsLastSyncedAtMs";
 const GIST_ID_KEY = "vscodiumSync.gistId";
 const GIST_URL_KEY = "vscodiumSync.gistUrl";
+const POLL_INTERVAL_MS = 15_000;
 const SETTINGS_LAST_SYNCED_AT_KEY = "vscodiumSync.settingsLastSyncedAtMs";
-const EXTENSIONS_LAST_SYNCED_AT_KEY = "vscodiumSync.extensionsLastSyncedAtMs";
 const SHOW_STATUS_COMMAND = "vscodiumSync.showStatus";
-
-const CREATED_MESSAGE = "VSCodium Sync: sync enabled.";
+const WATCH_DEBOUNCE_MS = 500;
 
 interface ItemNotificationConfig {
 	id: "settings" | "extensions";
@@ -39,6 +38,14 @@ interface ItemNotificationConfig {
 	pushMessage: string;
 }
 
+const EXTENSIONS_NOTIFICATION: ItemNotificationConfig = {
+	id: "extensions",
+	pullDiffTitle: "extensions: before ↔ after pull",
+	pullMessage: "VSCodium Sync: extensions were updated.",
+	pushDiffTitle: "extensions: before ↔ after push",
+	pushMessage: "VSCodium Sync: extensions synced.",
+};
+
 const SETTINGS_NOTIFICATION: ItemNotificationConfig = {
 	id: "settings",
 	pullDiffTitle: "settings.json: before ↔ after pull",
@@ -47,13 +54,13 @@ const SETTINGS_NOTIFICATION: ItemNotificationConfig = {
 	pushMessage: "VSCodium Sync: settings synced.",
 };
 
-const EXTENSIONS_NOTIFICATION: ItemNotificationConfig = {
-	id: "extensions",
-	pullDiffTitle: "extensions: before ↔ after pull",
-	pullMessage: "VSCodium Sync: extensions were updated.",
-	pushDiffTitle: "extensions: before ↔ after push",
-	pushMessage: "VSCodium Sync: extensions synced.",
-};
+interface NotifyOutcomeContext {
+	extensionsAfterSync: string;
+	extensionsBeforeSync: string;
+	log: vscode.LogOutputChannel;
+	settingsAfterSync: string;
+	settingsBeforeSync: string;
+}
 
 export async function activate(
 	context: vscode.ExtensionContext,
@@ -115,11 +122,11 @@ export async function activate(
 			statusBar.setSynced(Date.now());
 
 			notifyOutcome(outcome, {
-				settingsBeforeSync,
-				settingsAfterSync: readFileSync(settingsPath, "utf8"),
-				extensionsBeforeSync,
 				extensionsAfterSync: readLocalExtensions(),
+				extensionsBeforeSync,
 				log,
+				settingsAfterSync: readFileSync(settingsPath, "utf8"),
+				settingsBeforeSync,
 			});
 		} catch (error) {
 			const message = (error as Error).message;
@@ -176,38 +183,68 @@ export async function activate(
 	});
 }
 
-export function deactivate(): void {}
-
-interface NotifyOutcomeContext {
-	settingsBeforeSync: string;
-	settingsAfterSync: string;
-	extensionsBeforeSync: string;
-	extensionsAfterSync: string;
-	log: vscode.LogOutputChannel;
+async function applyExtensionsDiff(
+	diff: ExtensionsDiff,
+	log: vscode.LogOutputChannel,
+): Promise<void> {
+	await runExtensionCommands(
+		diff.toInstall,
+		"install",
+		"workbench.extensions.installExtension",
+		log,
+	);
+	await runExtensionCommands(
+		diff.toUninstall,
+		"uninstall",
+		"workbench.extensions.uninstallExtension",
+		log,
+	);
 }
 
-function notifyOutcome(outcome: SyncOutcome, ctx: NotifyOutcomeContext): void {
-	if (outcome.linked === "created") {
-		notifyCreated(CREATED_MESSAGE);
-		return;
-	}
+function createGlobalStateStore(
+	context: vscode.ExtensionContext,
+): SyncStateStore {
+	return {
+		get(): SyncState {
+			return {
+				extensionsLastSyncedAtMs: context.globalState.get<number>(
+					EXTENSIONS_LAST_SYNCED_AT_KEY,
+				),
+				gistId: context.globalState.get<string>(GIST_ID_KEY),
+				gistUrl: context.globalState.get<string>(GIST_URL_KEY),
+				settingsLastSyncedAtMs: context.globalState.get<number>(
+					SETTINGS_LAST_SYNCED_AT_KEY,
+				),
+			};
+		},
+		async update(patch: Partial<SyncState>): Promise<void> {
+			await updateIfDefined(
+				context,
+				EXTENSIONS_LAST_SYNCED_AT_KEY,
+				patch.extensionsLastSyncedAtMs,
+			);
+			await updateIfDefined(context, GIST_ID_KEY, patch.gistId);
+			await updateIfDefined(context, GIST_URL_KEY, patch.gistUrl);
+			await updateIfDefined(
+				context,
+				SETTINGS_LAST_SYNCED_AT_KEY,
+				patch.settingsLastSyncedAtMs,
+			);
+		},
+	};
+}
 
-	const logError = (message: string) => ctx.log.error(message);
+export function deactivate(): void {}
 
-	notifyItemOutcome(
-		SETTINGS_NOTIFICATION,
-		outcome.settings,
-		ctx.settingsBeforeSync,
-		ctx.settingsAfterSync,
-		logError,
-	);
-	notifyItemOutcome(
-		EXTENSIONS_NOTIFICATION,
-		outcome.extensions,
-		ctx.extensionsBeforeSync,
-		ctx.extensionsAfterSync,
-		logError,
-	);
+function ensureSettingsFileExists(settingsPath: string): void {
+	if (existsSync(settingsPath)) return;
+	mkdirSync(dirname(settingsPath), { recursive: true });
+	writeFileSync(settingsPath, "{}\n", "utf8");
+}
+
+function isBuiltinExtension(extension: vscode.Extension<unknown>): boolean {
+	// VS Code marks its bundled extensions this way at runtime; there's no typed API for it.
+	return (extension.packageJSON as { isBuiltin?: boolean }).isBuiltin === true;
 }
 
 function notifyItemOutcome(
@@ -241,15 +278,28 @@ function notifyItemOutcome(
 	}
 }
 
-function ensureSettingsFileExists(settingsPath: string): void {
-	if (existsSync(settingsPath)) return;
-	mkdirSync(dirname(settingsPath), { recursive: true });
-	writeFileSync(settingsPath, "{}\n", "utf8");
-}
+function notifyOutcome(outcome: SyncOutcome, ctx: NotifyOutcomeContext): void {
+	if (outcome.linked === "created") {
+		notifyCreated(CREATED_MESSAGE);
+		return;
+	}
 
-function isBuiltinExtension(extension: vscode.Extension<unknown>): boolean {
-	// VS Code marks its bundled extensions this way at runtime; there's no typed API for it.
-	return (extension.packageJSON as { isBuiltin?: boolean }).isBuiltin === true;
+	const logError = (message: string) => ctx.log.error(message);
+
+	notifyItemOutcome(
+		SETTINGS_NOTIFICATION,
+		outcome.settings,
+		ctx.settingsBeforeSync,
+		ctx.settingsAfterSync,
+		logError,
+	);
+	notifyItemOutcome(
+		EXTENSIONS_NOTIFICATION,
+		outcome.extensions,
+		ctx.extensionsBeforeSync,
+		ctx.extensionsAfterSync,
+		logError,
+	);
 }
 
 function readLocalExtensions(): string {
@@ -259,24 +309,6 @@ function readLocalExtensions(): string {
 		.sort();
 	// One per line: a single-line array is unreadable in the gist file and in the diff view.
 	return JSON.stringify(ids, null, 2);
-}
-
-async function applyExtensionsDiff(
-	diff: ExtensionsDiff,
-	log: vscode.LogOutputChannel,
-): Promise<void> {
-	await runExtensionCommands(
-		diff.toInstall,
-		"install",
-		"workbench.extensions.installExtension",
-		log,
-	);
-	await runExtensionCommands(
-		diff.toUninstall,
-		"uninstall",
-		"workbench.extensions.uninstallExtension",
-		log,
-	);
 }
 
 async function runExtensionCommands(
@@ -297,39 +329,6 @@ async function runExtensionCommands(
 			);
 		}
 	}
-}
-
-function createGlobalStateStore(
-	context: vscode.ExtensionContext,
-): SyncStateStore {
-	return {
-		get(): SyncState {
-			return {
-				gistId: context.globalState.get<string>(GIST_ID_KEY),
-				gistUrl: context.globalState.get<string>(GIST_URL_KEY),
-				settingsLastSyncedAtMs: context.globalState.get<number>(
-					SETTINGS_LAST_SYNCED_AT_KEY,
-				),
-				extensionsLastSyncedAtMs: context.globalState.get<number>(
-					EXTENSIONS_LAST_SYNCED_AT_KEY,
-				),
-			};
-		},
-		async update(patch: Partial<SyncState>): Promise<void> {
-			await updateIfDefined(context, GIST_ID_KEY, patch.gistId);
-			await updateIfDefined(context, GIST_URL_KEY, patch.gistUrl);
-			await updateIfDefined(
-				context,
-				SETTINGS_LAST_SYNCED_AT_KEY,
-				patch.settingsLastSyncedAtMs,
-			);
-			await updateIfDefined(
-				context,
-				EXTENSIONS_LAST_SYNCED_AT_KEY,
-				patch.extensionsLastSyncedAtMs,
-			);
-		},
-	};
 }
 
 function updateIfDefined<T>(

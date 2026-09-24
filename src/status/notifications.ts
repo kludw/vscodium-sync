@@ -5,13 +5,17 @@ import * as vscode from "vscode";
 const VIEW_DIFF = "View Diff";
 
 export interface SyncedNotificationDeps {
+	afterContent: string;
+	beforeContent: string;
+	diffTitle: string;
 	/** Namespaces the temp diff files so a settings diff and an extensions diff never collide. */
 	id: string;
-	message: string;
-	diffTitle: string;
-	beforeContent: string;
-	afterContent: string;
 	logError: (message: string) => void;
+	message: string;
+}
+
+export function notifyCreated(message: string): void {
+	vscode.window.showInformationMessage(message);
 }
 
 export async function notifySynced(
@@ -47,8 +51,4 @@ export async function notifySynced(
 	} catch (error) {
 		deps.logError(`Failed to open sync diff: ${(error as Error).message}`);
 	}
-}
-
-export function notifyCreated(message: string): void {
-	vscode.window.showInformationMessage(message);
 }

@@ -2,17 +2,18 @@ import * as vscode from "vscode";
 
 export interface StatusMenuDeps {
 	getGistUrl: () => string | undefined;
-	syncNow: () => Promise<void>;
 	showLog: () => void;
+	syncNow: () => Promise<void>;
 }
 
-const SYNC_NOW = "$(sync) Sync Now";
-const OPEN_SETTINGS = "$(settings-gear) Open Settings JSON";
 const OPEN_GIST = "$(link-external) Open Sync Gist";
+const OPEN_SETTINGS = "$(settings-gear) Open Settings JSON";
 const SHOW_LOG = "$(output) Show Sync Log";
+const SYNC_NOW = "$(sync) Sync Now";
 
 export async function showStatusMenu(deps: StatusMenuDeps): Promise<void> {
 	const gistUrl = deps.getGistUrl();
+	// Display order is deliberate (primary action, then navigation, then log) - not alphabetical.
 	const items = [
 		SYNC_NOW,
 		OPEN_SETTINGS,
