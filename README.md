@@ -13,13 +13,14 @@ Then open this folder in VSCodium and press `F5` to launch an Extension Developm
 
 ## Documentation
 
-Full docs live in [`docs/`](docs/index.md):
+Published at **[kludw.github.io/vscodium-sync](https://kludw.github.io/vscodium-sync/)**, or browse the source in [`docs/`](docs/index.md):
 
 - [Getting Started](docs/getting-started.md)
 - [Usage](docs/usage.md)
 - [Architecture](docs/architecture.md)
 - [Testing](docs/testing.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [Changelog](CHANGELOG.md)
 
 ## Development
 

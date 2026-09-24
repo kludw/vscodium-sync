@@ -29,10 +29,11 @@ This is not the bun you know, API might have changed since your training. Refer 
 
 ## Docs
 
-Docs live in `docs/` (`docs/index.md` is the entry point), plain Markdown meant to be dropped into a doc-site generator as-is. `README.md` is the GitHub-facing landing page and links into `docs/`.
+Docs live in `docs/` (`docs/index.md` is the entry point) and are published live via GitHub Pages (Jekyll, `jekyll-theme-minimal`) at https://kludw.github.io/vscodium-sync/. `README.md` is the GitHub-facing landing page and links into `docs/`. `CHANGELOG.md` (root, Keep a Changelog format) is the version list.
 
-1. Behaviour changes (sync triggers, conflict rule, notifications, UI, auth) → update the matching page in `docs/`, same PR.
+1. Behaviour changes (sync triggers, conflict rule, notifications, UI, auth) → update the matching page in `docs/`, same PR, plus a `CHANGELOG.md` entry under `[Unreleased]`.
 2. New module or moved file → update `docs/architecture.md`'s module map.
 3. New/changed script → update `docs/getting-started.md` and `docs/testing.md`.
 4. Docs describe current behaviour only. No speculative/planned-feature sections.
 5. British English spelling throughout (`-ise` not `-ize`, `colour`/`behaviour`/`favour`, etc.).
+6. New page in `docs/`: add YAML front matter (`title:`) and link to it with `.html`, not `.md` — Jekyll needs front matter to render a page at all, and outputs `.html`. Links from `README.md` into `docs/` stay `.md` (GitHub renders those directly).

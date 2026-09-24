@@ -1,0 +1,20 @@
+# Changelog
+
+Notable changes to this project, following [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). No version has been tagged/released yet, so everything so far is under [Unreleased].
+
+## [Unreleased]
+
+### Added
+
+- Two-way sync of global `settings.json` through a private GitHub gist, auto-sync always on (no toggle).
+- Zero-config gist discovery: the first machine creates the gist; other machines on the same GitHub account auto-adopt it by marker filename (`vscodium-sync-settings.json`), with nothing to configure by hand.
+- GitHub sign-in via VS Code's built-in GitHub authentication provider (`gist` scope) — no token entry, no OAuth app to register.
+- Last-write-wins conflict resolution by timestamp.
+- Local → remote sync on file save (debounced file watcher); remote → local sync via 60-second polling; sync also runs once on activation and on demand.
+- Status bar indicator (syncing / synced / error) with a quick-pick menu: Sync Now, Open Settings JSON, Open Gist on GitHub, Show Sync Log.
+- Notifications on push/pull with a "View Diff" action opening a diff editor against the pre-sync content.
+- `VSCodium Sync` output channel logging sign-in, sync results, and errors.
+- Test suite with 100% function/line coverage on the pure sync core (`github/client.ts`, `sync/conflict.ts`, `sync/engine.ts`, `settings/path.ts`).
+- Documentation site published via GitHub Pages: <https://kludw.github.io/vscodium-sync/>
+
+[Unreleased]: https://github.com/kludw/vscodium-sync/commits/master
