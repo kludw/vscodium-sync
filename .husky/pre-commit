@@ -1,0 +1,10 @@
+set -eu
+
+# Abort if staged files also have unstaged edits: re-staging fixes would commit them too.
+if git status --porcelain | grep --quiet '^[MARC]M'; then
+  printf '%s\n' "ERROR: Some staged files have unstaged changes. Stage or stash them first." >&2
+  exit 1
+fi
+
+bunx --bun @biomejs/biome check --write --staged --files-ignore-unknown=true --no-errors-on-unmatched
+git update-index --again

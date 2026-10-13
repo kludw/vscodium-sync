@@ -1,0 +1,45 @@
+{
+	"name": "vscodium-sync",
+	"displayName": "VSCodium Sync",
+	"description": "Hello World extension for VSCodium",
+	"version": "0.0.1",
+	"publisher": "kludw",
+	"private": true,
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/kludw/vscodium-sync.git"
+	},
+	"homepage": "https://github.com/kludw/vscodium-sync#readme",
+	"bugs": {
+		"url": "https://github.com/kludw/vscodium-sync/issues"
+	},
+	"engines": {
+		"vscode": "^1.135.0"
+	},
+	"categories": [
+		"Other"
+	],
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"main": "./dist/extension.js",
+	"contributes": {},
+	"scripts": {
+		"build": "bun build ./src/extension.ts --outdir ./dist --target node --format cjs --external vscode --sourcemap=linked",
+		"build:prod": "bun run typecheck && rm -rf dist && bun build ./src/extension.ts --outdir ./dist --target node --format cjs --external vscode --production",
+		"watch": "bun run build --watch",
+		"typecheck": "tsc",
+		"check": "bunx --bun @biomejs/biome check --write",
+		"vscode:prepublish": "bun run build:prod",
+		"package": "bunx @vscode/vsce package --no-dependencies",
+		"clean": "rm -rf dist/ & rm -rf node_modules/",
+		"prepare": "husky"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@types/vscode": "~1.134.0",
+		"husky": "9.1.7",
+		"typescript": "^7.0.2"
+	}
+}
