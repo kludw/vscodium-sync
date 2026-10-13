@@ -1,0 +1,4 @@
+[test]
+root = "test"
+# Replaces the editor-provided "vscode" module with a fake before any test imports it.
+preload = ["./test/preload.ts"]

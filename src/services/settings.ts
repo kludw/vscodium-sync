@@ -1,7 +1,6 @@
 import type { LocalState, SyncItem } from "@services/sync";
 import { JsoncFile } from "@util/jsonc-file";
 import type { Logger } from "@util/log";
-import type { Result } from "@util/result";
 import * as vscode from "vscode";
 
 export type Settings = Record<string, unknown>;
@@ -32,35 +31,24 @@ export class SettingsService implements SyncItem<"settings"> {
 		return isSettings(value);
 	}
 
-	async read(): Promise<Result<LocalState<Settings>>> {
-		const snapshot = await this.file.read();
-
-		if (snapshot.error) {
-			return { error: snapshot.error };
-		}
-
-		const { value, text, modifiedAt } = snapshot.value;
+	async read(): Promise<LocalState<Settings>> {
+		const { value, text, modifiedAt } = await this.file.read();
 
 		if (!isSettings(value)) {
-			return { error: new Error("settings.json must contain an object") };
+			throw new Error("settings.json must contain an object");
 		}
 
 		this.log.debug(`Read ${Object.keys(value).length} setting(s)`);
-		return { value: { value, text, modifiedAt } };
+		return { value, text, modifiedAt };
 	}
 
 	/** Replaces settings.json with `next`, keys sorted alphabetically. Comments are not kept. */
 	async write(
 		local: LocalState<Settings>,
 		next: Settings,
-	): Promise<Result<LocalState<Settings>>> {
+	): Promise<LocalState<Settings>> {
 		const text = await this.file.write(local.text, next);
-
-		if (text.error) {
-			return { error: text.error };
-		}
-
-		return { value: { value: next, text: text.value, modifiedAt: Date.now() } };
+		return { value: next, text, modifiedAt: Date.now() };
 	}
 
 	watch(onChange: () => void): vscode.Disposable {

@@ -1,5 +1,6 @@
 import type { GistService } from "@services/gist";
 import { SignInRequiredError } from "@services/github";
+import { toError } from "@util/errors";
 import type { Logger } from "@util/log";
 import * as vscode from "vscode";
 
@@ -16,7 +17,7 @@ export class CloudService implements vscode.Disposable {
 	private readonly focusListener: vscode.Disposable;
 
 	constructor(
-		private readonly gistService: GistService,
+		private readonly gistService: Pick<GistService, "hasChanged">,
 		private readonly log: Logger,
 		private readonly onChange: () => void,
 	) {
@@ -52,24 +53,22 @@ export class CloudService implements vscode.Disposable {
 		this.checking = true;
 
 		try {
-			const result = await this.gistService.hasChanged();
+			const { changed, pollInterval } = await this.gistService.hasChanged();
 
-			if (result.error) {
-				if (result.error instanceof SignInRequiredError) {
-					this.log.debug("Not signed in, skipping cloud check");
-				} else {
-					this.log.warn(`Cloud check failed: ${result.error.message}`);
-				}
-
-				return undefined;
-			}
-
-			if (result.value.changed) {
+			if (changed) {
 				this.log.info("Cloud gist changed");
 				this.onChange();
 			}
 
-			return result.value.pollInterval;
+			return pollInterval;
+		} catch (error) {
+			if (error instanceof SignInRequiredError) {
+				this.log.debug("Not signed in, skipping cloud check");
+			} else {
+				this.log.warn(`Cloud check failed: ${toError(error).message}`);
+			}
+
+			return undefined;
 		} finally {
 			this.checking = false;
 		}

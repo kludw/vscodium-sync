@@ -19,7 +19,7 @@ Snapshot below verified against TS 7.0 announcement, TS 6.0 release notes, and b
 ## Tooling
 
 1. Install: `bun add -d typescript@latest @types/bun`.
-2. Type-check: `bun run typecheck` (runs `tsc` then `tsc -p src/ui`; both `noEmit`). Bun runs TS but type-check is a separate step.
+2. Type-check: `bun run typecheck` (runs `tsc` then `tsc -p test`, which adds Bun's types for the tests; both `noEmit`). Bun runs TS but type-check is a separate step.
 3. Don't pass file paths to `tsc` when a tsconfig exists: error in 7.0 unless `--ignoreConfig`.
 4. TS 7.0 ships no programmatic API (expected in 7.1). Tools importing `typescript` as a library may need `@typescript/typescript6` side-by-side. Check the 7.0 announcement before adding such a tool.
 5. `@typescript/native-preview` is superseded. Nightlies: `typescript@next`.

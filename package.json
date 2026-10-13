@@ -1,7 +1,7 @@
 {
 	"name": "vscodium-sync",
 	"displayName": "VSCodium Sync",
-	"description": "Hello World extension for VSCodium",
+	"description": "Sync settings, keybindings and extensions across machines through a secret GitHub gist",
 	"version": "0.0.1",
 	"publisher": "kludw",
 	"private": true,
@@ -27,17 +27,19 @@
 	"contributes": {},
 	"scripts": {
 		"build": "bun build ./src/extension.ts --outdir ./dist --target node --format cjs --external vscode --sourcemap=linked",
-		"build:prod": "bun run typecheck && rm -rf dist && bun build ./src/extension.ts --outdir ./dist --target node --format cjs --external vscode --production",
+		"build:prod": "bun run typecheck && bun test && rm -rf dist && bun build ./src/extension.ts --outdir ./dist --target node --format cjs --external vscode --production",
 		"watch": "bun run build --watch",
-		"typecheck": "tsc",
+		"typecheck": "tsc && tsc -p test",
+		"test": "bun test",
 		"check": "bunx --bun @biomejs/biome check --write",
 		"vscode:prepublish": "bun run build:prod",
 		"package": "bunx @vscode/vsce package --no-dependencies",
-		"clean": "rm -rf dist/ & rm -rf node_modules/",
+		"clean": "rm -rf dist/ node_modules/",
 		"prepare": "husky"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.15",
+		"@types/bun": "^1.4.3",
 		"@types/node": "^24",
 		"@types/vscode": "~1.134.0",
 		"husky": "9.1.7",

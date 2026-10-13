@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import type { LocalState, SyncItem } from "@services/sync";
+import type { LocalState, SyncItem, WriteResult } from "@services/sync";
+import { toError } from "@util/errors";
 import { sameJson, toSortedJson } from "@util/json";
 import { JsoncFile } from "@util/jsonc-file";
 import type { Logger } from "@util/log";
-import { type Result, toError } from "@util/result";
 import * as vscode from "vscode";
 
 /** Extension IDs (`publisher.name`, lowercase), sorted. */
@@ -33,17 +33,22 @@ export class ExtensionsService implements SyncItem<"extensions"> {
 	readonly label = "extensions";
 	readonly fileName = "extensions.json";
 	private readonly registry: JsoncFile;
+	private readonly ownId: string;
 
-	/** @param ownId This extension's ID, which is never synced. */
+	/**
+	 * @param ownId This extension's ID, which is never synced.
+	 * @param extensionsDir Where extensions are installed; found automatically if omitted.
+	 */
 	constructor(
-		private readonly ownId: string,
+		ownId: string,
 		private readonly state: vscode.Memento,
 		private readonly log: Logger,
+		extensionsDir = findExtensionsDir(),
 	) {
-		const dir = findExtensionsDir();
-		log.info(`Extensions folder: ${dir.fsPath}`);
+		this.ownId = ownId.toLowerCase();
+		log.info(`Extensions folder: ${extensionsDir.fsPath}`);
 		this.registry = new JsoncFile(
-			vscode.Uri.joinPath(dir, REGISTRY_FILE),
+			vscode.Uri.joinPath(extensionsDir, REGISTRY_FILE),
 			"[]\n",
 			log,
 		);
@@ -53,35 +58,18 @@ export class ExtensionsService implements SyncItem<"extensions"> {
 		return Array.isArray(value) && value.every((id) => typeof id === "string");
 	}
 
-	async read(): Promise<Result<LocalState<ExtensionList>>> {
-		const installed = await this.installed();
-
-		if (installed.error) {
-			return { error: installed.error };
-		}
-
-		const value = withUnavailable(installed.value.ids, this.unavailable());
+	async read(): Promise<LocalState<ExtensionList>> {
+		const { ids, modifiedAt } = await this.installed();
+		const value = union(ids, this.unavailable());
 		this.log.debug(`${value.length} extension(s) installed or unavailable`);
-		return {
-			value: {
-				value,
-				text: toSortedJson(value),
-				modifiedAt: installed.value.modifiedAt,
-			},
-		};
+		return { value, text: toSortedJson(value), modifiedAt };
 	}
 
 	async write(
 		local: LocalState<ExtensionList>,
 		next: ExtensionList,
-	): Promise<Result<LocalState<ExtensionList>>> {
-		const current = await this.installed();
-
-		if (current.error) {
-			return { error: current.error };
-		}
-
-		const installed = new Set(current.value.ids);
+	): Promise<WriteResult<ExtensionList>> {
+		const installed = new Set((await this.installed()).ids);
 		const unavailable = new Set(this.unavailable());
 		const failedInstalls: string[] = [];
 		const failedUninstalls: string[] = [];
@@ -124,27 +112,31 @@ export class ExtensionsService implements SyncItem<"extensions"> {
 
 		await this.state.update(UNAVAILABLE_KEY, [...unavailable].sort());
 
+		const value = union([...installed], [...unavailable]);
+		const warnings: string[] = [];
+
 		if (failedInstalls.length > 0) {
-			vscode.window.showWarningMessage(
-				`VSCodium Sync: couldn't install ${failedInstalls.join(", ")}. Will retry on the next sync from the cloud.`,
+			warnings.push(
+				`couldn't install ${failedInstalls.join(", ")}. Will retry on the next sync from the cloud.`,
 			);
 		}
-
-		const value = withUnavailable([...installed], [...unavailable]);
 
 		if (failedUninstalls.length > 0) {
 			const message = `Extensions: couldn't uninstall ${failedUninstalls.join(", ")}`;
 
 			if (sameJson(value, local.value)) {
-				return { error: new Error(message) };
+				throw new Error(message);
 			}
 
 			// Partly applied: report what actually happened, so the failed part is retried next sync.
-			vscode.window.showWarningMessage(`VSCodium Sync: ${message}`);
+			warnings.push(message);
 		}
 
 		return {
-			value: { value, text: toSortedJson(value), modifiedAt: Date.now() },
+			value,
+			text: toSortedJson(value),
+			modifiedAt: Date.now(),
+			warnings,
 		};
 	}
 
@@ -158,33 +150,26 @@ export class ExtensionsService implements SyncItem<"extensions"> {
 	}
 
 	/** Installed extension IDs (excluding this one) from the registry, and when it last changed. */
-	private async installed(): Promise<
-		Result<{ ids: ExtensionList; modifiedAt: number }>
-	> {
-		const snapshot = await this.registry.read();
-
-		if (snapshot.error) {
-			return { error: snapshot.error };
-		}
-
-		const { value, modifiedAt } = snapshot.value;
+	private async installed(): Promise<{
+		ids: ExtensionList;
+		modifiedAt: number;
+	}> {
+		const { value, modifiedAt } = await this.registry.read();
 
 		if (!Array.isArray(value)) {
-			return { error: new Error(`${REGISTRY_FILE} must contain an array`) };
+			throw new Error(`${REGISTRY_FILE} must contain an array`);
 		}
 
 		const ids = value
-			.map((entry: unknown) => registryId(entry))
-			.filter((id): id is string => id !== undefined)
-			.filter((id) => id !== this.ownId.toLowerCase());
-		return { value: { ids: [...new Set(ids)].sort(), modifiedAt } };
+			.map(registryId)
+			.filter((id): id is string => id !== undefined && id !== this.ownId);
+		return { ids: union(ids, []), modifiedAt };
 	}
 }
 
-const withUnavailable = (
-	installed: ExtensionList,
-	unavailable: ExtensionList,
-): ExtensionList => [...new Set([...installed, ...unavailable])].sort();
+/** Deduplicated and sorted. */
+const union = (a: ExtensionList, b: ExtensionList): ExtensionList =>
+	[...new Set([...a, ...b])].sort();
 
 /** `identifier.id` of a registry entry, lowercased; undefined if the entry is malformed. */
 const registryId = (entry: unknown): string | undefined => {
@@ -201,13 +186,17 @@ const findExtensionsDir = (): vscode.Uri => {
 	const appRoot = vscode.env.appRoot;
 
 	for (const extension of vscode.extensions.all) {
-		if (extension.extensionUri.fsPath.startsWith(appRoot)) {
-			continue; // Built-in.
+		const location = extension.extensionUri;
+
+		// Skip built-ins and anything not on disk.
+		if (location.scheme !== "file" || location.fsPath.startsWith(appRoot)) {
+			continue;
 		}
 
-		const parent = vscode.Uri.joinPath(extension.extensionUri, "..");
+		const parent = vscode.Uri.joinPath(location, "..");
 
-		if (extension.extensionUri.scheme === "file" && hasRegistry(parent)) {
+		// Synchronous, since it runs once at startup; vscode.workspace.fs has no sync API.
+		if (existsSync(vscode.Uri.joinPath(parent, REGISTRY_FILE).fsPath)) {
 			return parent;
 		}
 	}
@@ -216,7 +205,3 @@ const findExtensionsDir = (): vscode.Uri => {
 		process.env.VSCODE_EXTENSIONS ?? `${homedir()}/.vscode-oss/extensions`,
 	);
 };
-
-// Synchronous, since it runs once while constructing; vscode.workspace.fs has no sync API.
-const hasRegistry = (dir: vscode.Uri): boolean =>
-	existsSync(vscode.Uri.joinPath(dir, REGISTRY_FILE).fsPath);

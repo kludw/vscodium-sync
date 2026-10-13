@@ -27,10 +27,11 @@ Do not rely on your training data, APIs and manifest fields change every release
 ## Project setup (verified)
 
 1. Entry: `src/extension.ts`, exports `activate(context)` / `deactivate()`. Push every disposable to `context.subscriptions`.
-2. Build: `bun run build` (dev: sourcemap) / `bun run build:prod` (typecheck, clean `dist`, `--production` = minified, no sourcemap) → `dist/extension.js` (CJS, `--target node`, `vscode` external; VS Code injects `vscode` at runtime, never bundle it). Mirrors the esbuild setup in `https://code.visualstudio.com/api/working-with-extensions/bundling-extension.md`.
+2. Build: `bun run build` (dev: sourcemap) / `bun run build:prod` (typecheck, tests, clean `dist`, `--production` = minified, no sourcemap) → `dist/extension.js` (CJS, `--target node`, `vscode` external; VS Code injects `vscode` at runtime, never bundle it). Mirrors the esbuild setup in `https://code.visualstudio.com/api/working-with-extensions/bundling-extension.md`.
 3. Types: `@types/vscode` pinned `~X.Y.0` matching `engines.vscode: ^X.Y.0`. Bump both together, never types above engines. Not every version has a types release (e.g. no 1.135): then use the highest types version below engines. Using a newer API = bump both.
 4. Run/debug: F5 ("Run Extension" in `.vscode/launch.json`) builds then opens an Extension Development Host window.
-5. Logs: Extension Development Host → Output panel → "Extension Host"; or `~/Library/Application Support/VSCodium/logs/<session>/window*/exthost/exthost.log`. Activation shows as `ExtensionService#_doActivateExtension kludw.vscodium-sync`.
+5. Tests: `bun test` (files in `test/`, see the bun skill). `vscode` only exists inside the editor, so `test/preload.ts` (via `bunfig.toml`) replaces it with `test/fake-vscode.ts`: file APIs hit real temp folders; watchers, messages, commands and auth are driven/recorded through its `fake` object. Extend the fake when code uses new API surface. `test/extension.test.ts` runs `activate()` end to end against a fake GitHub behind `fetch`.
+6. Logs: Extension Development Host → Output panel → "Extension Host"; or `~/Library/Application Support/VSCodium/logs/<session>/window*/exthost/exthost.log`. Activation shows as `ExtensionService#_doActivateExtension kludw.vscodium-sync`.
 
 ## Gotchas
 

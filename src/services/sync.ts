@@ -1,8 +1,11 @@
 import type { Gist, GistService, SyncData } from "@services/gist";
+import { SignInRequiredError } from "@services/github";
+import { toError } from "@util/errors";
 import { sameJson, toSortedJson } from "@util/json";
 import type { Logger } from "@util/log";
-import type { Result } from "@util/result";
 import type * as vscode from "vscode";
+
+export type SyncKey = keyof SyncData;
 
 export type LocalState<T> = {
 	value: T;
@@ -12,7 +15,8 @@ export type LocalState<T> = {
 	text: string;
 };
 
-export type SyncKey = keyof SyncData;
+/** The state after a write, plus anything that only partly worked (e.g. an install that failed). */
+export type WriteResult<T> = LocalState<T> & { warnings?: string[] };
 
 /** Something that syncs (settings, keybindings, extensions), stored under `key` in the gist. */
 export interface SyncItem<K extends SyncKey = SyncKey, T = SyncData[K]> {
@@ -21,11 +25,11 @@ export interface SyncItem<K extends SyncKey = SyncKey, T = SyncData[K]> {
 	readonly label: string;
 	/** For diff titles and syntax highlighting, e.g. "settings.json". */
 	readonly fileName: string;
-	read(): Promise<Result<LocalState<T>>>;
-	/** Makes local match `next`. Returns the resulting state, which may differ if parts failed. */
-	write(local: LocalState<T>, next: T): Promise<Result<LocalState<T>>>;
 	/** True if a value from the gist has the right shape. */
 	isValid(value: unknown): value is T;
+	read(): Promise<LocalState<T>>;
+	/** Makes local match `next`. The result may differ from `next` if parts failed. */
+	write(local: LocalState<T>, next: T): Promise<WriteResult<T>>;
 	/** Calls `onChange` when the local side changes. */
 	watch(onChange: () => void): vscode.Disposable;
 }
@@ -40,9 +44,17 @@ export type SyncChange = {
 	after: string;
 };
 
-export type SyncReport = { changes: SyncChange[]; errors: Error[] };
+export type SyncReport = {
+	changes: SyncChange[];
+	/** Items that failed; the others still synced. */
+	errors: Error[];
+	warnings: string[];
+};
 
-/** Collects one sync run's results, so each item can be handled on its own. */
+/** The part of GistService that syncing needs. */
+export type GistStore = Pick<GistService, "readData" | "write">;
+
+/** One sync run's state, shared by the items as they're handled one by one. */
 type Run = {
 	remote: Partial<SyncData>;
 	remoteTime: number;
@@ -50,8 +62,7 @@ type Run = {
 	nextRemote: Partial<SyncData>;
 	/** Baselines to record once the push succeeds. */
 	pushed: { item: SyncItem; value: unknown }[];
-	changes: SyncChange[];
-	errors: Error[];
+	report: SyncReport;
 };
 
 /**
@@ -62,53 +73,37 @@ type Run = {
  */
 export class SyncService {
 	constructor(
-		private readonly gistService: GistService,
+		private readonly gistStore: GistStore,
 		private readonly items: SyncItem[],
 		private readonly state: vscode.Memento,
 		private readonly log: Logger,
 	) {}
 
-	async sync(gist: Gist): Promise<Result<SyncReport>> {
-		const remote = this.gistService.readData(gist);
-
-		if (remote.error) {
-			return { error: remote.error };
-		}
-
+	/** Syncs every item with `gist`. Throws only if the gist itself is unusable. */
+	async sync(gist: Gist): Promise<SyncReport> {
+		const remote = this.gistStore.readData(gist);
 		const run: Run = {
-			remote: remote.value,
+			remote,
 			remoteTime: Date.parse(gist.updated_at),
-			nextRemote: { ...remote.value },
+			nextRemote: { ...remote },
 			pushed: [],
-			changes: [],
-			errors: [],
+			report: { changes: [], errors: [], warnings: [] },
 		};
 
 		for (const item of this.items) {
-			await this.syncItem(item, run);
-		}
-
-		const { pushed, changes, errors } = run;
-
-		if (pushed.length > 0) {
-			const written = await this.gistService.write(gist, run.nextRemote);
-
-			if (written.error) {
-				errors.push(written.error);
-				return {
-					value: {
-						changes: changes.filter((change) => change.direction === "pull"),
-						errors,
-					},
-				};
-			}
-
-			for (const { item, value } of pushed) {
-				await this.setBaseline(item, value);
+			try {
+				await this.syncItem(item, run);
+			} catch (error) {
+				this.log.error(`${item.label}: sync failed:`, error);
+				run.report.errors.push(toError(error));
 			}
 		}
 
-		return { value: { changes, errors } };
+		if (run.pushed.length > 0) {
+			await this.push(gist, run);
+		}
+
+		return run.report;
 	}
 
 	private async syncItem<K extends SyncKey>(
@@ -116,24 +111,15 @@ export class SyncService {
 		run: Run,
 	): Promise<void> {
 		const local = await item.read();
-
-		if (local.error) {
-			run.errors.push(local.error);
-			return;
-		}
-
 		const remoteValue: unknown = run.remote[item.key];
 
 		if (remoteValue !== undefined && !item.isValid(remoteValue)) {
-			run.errors.push(
-				new Error(`${item.label} in the gist have an invalid format`),
-			);
-			return;
+			throw new Error(`${item.label} in the gist have an invalid format`);
 		}
 
-		if (remoteValue !== undefined && sameJson(local.value.value, remoteValue)) {
+		if (remoteValue !== undefined && sameJson(local.value, remoteValue)) {
 			this.log.debug(`${item.label}: in sync`);
-			await this.setBaseline(item, local.value.value);
+			await this.setBaseline(item, local.value);
 			return;
 		}
 
@@ -141,40 +127,57 @@ export class SyncService {
 		const direction =
 			remoteValue === undefined
 				? "push"
-				: this.decide(item, local.value, remoteValue, run.remoteTime);
+				: this.decide(item, local, remoteValue, run.remoteTime);
 
 		if (remoteValue !== undefined && direction === "pull") {
 			this.log.info(`${item.label}: pulling from the cloud`);
-			const written = await item.write(local.value, remoteValue);
-
-			if (written.error) {
-				run.errors.push(written.error);
-				return;
-			}
+			const written = await item.write(local, remoteValue);
+			run.report.warnings.push(...(written.warnings ?? []));
 
 			// The actual result, not remoteValue: if part of the write failed (e.g. an extension
-			// couldn't be installed), the next sync retries the pull instead of pushing the gap.
-			await this.setBaseline(item, written.value.value);
-			run.changes.push({
+			// couldn't be uninstalled), the next sync retries the pull instead of pushing the gap.
+			await this.setBaseline(item, written.value);
+			run.report.changes.push({
 				label: item.label,
 				fileName: item.fileName,
 				direction: "pull",
-				before: local.value.text,
-				after: written.value.text,
+				before: local.text,
+				after: written.text,
 			});
 			return;
 		}
 
 		this.log.info(`${item.label}: pushing to the cloud`);
-		run.nextRemote[item.key] = local.value.value;
-		run.pushed.push({ item, value: local.value.value });
-		run.changes.push({
+		run.nextRemote[item.key] = local.value;
+		run.pushed.push({ item, value: local.value });
+		run.report.changes.push({
 			label: item.label,
 			fileName: item.fileName,
 			direction: "push",
 			before: toSortedJson(remoteValue ?? null),
-			after: toSortedJson(local.value.value),
+			after: toSortedJson(local.value),
 		});
+	}
+
+	/** Writes every pushed item to the gist in one request, then records their baselines. */
+	private async push(gist: Gist, run: Run): Promise<void> {
+		try {
+			await this.gistStore.write(gist, run.nextRemote);
+		} catch (error) {
+			if (!(error instanceof SignInRequiredError)) {
+				this.log.error("Writing the gist failed:", error);
+			}
+
+			run.report.errors.push(toError(error));
+			run.report.changes = run.report.changes.filter(
+				(change) => change.direction === "pull",
+			);
+			return;
+		}
+
+		for (const { item, value } of run.pushed) {
+			await this.setBaseline(item, value);
+		}
 	}
 
 	/** Which side should overwrite the other, given that they differ. */

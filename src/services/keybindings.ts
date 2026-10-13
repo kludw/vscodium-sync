@@ -1,7 +1,6 @@
 import type { LocalState, SyncItem } from "@services/sync";
 import { JsoncFile } from "@util/jsonc-file";
 import type { Logger } from "@util/log";
-import type { Result } from "@util/result";
 import * as vscode from "vscode";
 
 export type Keybindings = unknown[];
@@ -29,21 +28,15 @@ export class KeybindingsService implements SyncItem<"keybindings"> {
 		return Array.isArray(value);
 	}
 
-	async read(): Promise<Result<LocalState<Keybindings>>> {
-		const snapshot = await this.file.read();
-
-		if (snapshot.error) {
-			return { error: snapshot.error };
-		}
-
-		const { value, text, modifiedAt } = snapshot.value;
+	async read(): Promise<LocalState<Keybindings>> {
+		const { value, text, modifiedAt } = await this.file.read();
 
 		if (!Array.isArray(value)) {
-			return { error: new Error("keybindings.json must contain an array") };
+			throw new Error("keybindings.json must contain an array");
 		}
 
 		this.log.debug(`Read ${value.length} keybinding(s)`);
-		return { value: { value, text, modifiedAt } };
+		return { value, text, modifiedAt };
 	}
 
 	/**
@@ -53,14 +46,9 @@ export class KeybindingsService implements SyncItem<"keybindings"> {
 	async write(
 		local: LocalState<Keybindings>,
 		next: Keybindings,
-	): Promise<Result<LocalState<Keybindings>>> {
+	): Promise<LocalState<Keybindings>> {
 		const text = await this.file.write(local.text, next);
-
-		if (text.error) {
-			return { error: text.error };
-		}
-
-		return { value: { value: next, text: text.value, modifiedAt: Date.now() } };
+		return { value: next, text, modifiedAt: Date.now() };
 	}
 
 	watch(onChange: () => void): vscode.Disposable {

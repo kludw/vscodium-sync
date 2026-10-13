@@ -1,6 +1,6 @@
+import { toError } from "@util/errors";
 import { toSortedJson } from "@util/json";
 import type { Logger } from "@util/log";
-import { type Result, toError } from "@util/result";
 // The package's default UMD build loads its internals with runtime require() calls the bundler
 // can't follow (the bundle then fails with "Cannot find module ./impl/format"), so use the ESM build.
 import {
@@ -36,32 +36,9 @@ export class JsoncFile {
 		return basename(this.uri);
 	}
 
-	async read(): Promise<Result<JsoncSnapshot>> {
-		let text: string;
-		let modifiedAt: number;
-
-		try {
-			const stat = await vscode.workspace.fs.stat(this.uri);
-			modifiedAt = stat.mtime;
-			text = new TextDecoder().decode(
-				await vscode.workspace.fs.readFile(this.uri),
-			);
-		} catch (error) {
-			if (
-				error instanceof vscode.FileSystemError &&
-				error.code === "FileNotFound"
-			) {
-				this.log.info(
-					`${this.uri.fsPath} doesn't exist, using ${this.emptyText}`,
-				);
-				text = this.emptyText;
-				modifiedAt = 0;
-			} else {
-				this.log.error(`Reading ${this.uri.fsPath} failed:`, error);
-				return { error: toError(error) };
-			}
-		}
-
+	/** Throws if the file can't be read or isn't valid JSON with comments. */
+	async read(): Promise<JsoncSnapshot> {
+		const { text, modifiedAt } = await this.load();
 		const errors: ParseError[] = [];
 		const value: unknown = parse(text, errors, { allowTrailingComma: true });
 
@@ -72,33 +49,32 @@ export class JsoncFile {
 						`${printParseErrorCode(error.error)} at line ${lineOf(text, error.offset)}`,
 				)
 				.join(", ");
-			this.log.error(`Parsing ${this.uri.fsPath} failed: ${details}`);
-			return { error: new Error(`${this.name} is invalid: ${details}`) };
+			throw new Error(`${this.name} is invalid: ${details}`);
 		}
 
-		return { value: { value, text, modifiedAt } };
+		return { value, text, modifiedAt };
 	}
 
 	/**
 	 * Replaces the file with `value` as JSON, keys sorted alphabetically at every level. Keeps the
 	 * indentation and line endings of `currentText`; comments are not kept. Returns the new text.
 	 */
-	async write(currentText: string, value: unknown): Promise<Result<string>> {
+	async write(currentText: string, value: unknown): Promise<string> {
 		const { indent, eol } = detectFormatting(currentText);
-		const next = toSortedJson(value, indent, eol);
+		const text = toSortedJson(value, indent, eol);
 
 		try {
 			await vscode.workspace.fs.writeFile(
 				this.uri,
-				new TextEncoder().encode(next),
+				new TextEncoder().encode(text),
 			);
-			this.lastWritten = next;
-			this.log.info(`Wrote ${this.uri.fsPath}`);
-			return { value: next };
 		} catch (error) {
-			this.log.error(`Writing ${this.uri.fsPath} failed:`, error);
-			return { error: toError(error) };
+			throw new Error(`Writing ${this.name} failed: ${toError(error).message}`);
 		}
+
+		this.lastWritten = text;
+		this.log.info(`Wrote ${this.uri.fsPath}`);
+		return text;
 	}
 
 	/**
@@ -125,7 +101,10 @@ export class JsoncFile {
 			this.log.debug(`File event: ${uri.fsPath}`);
 			clearTimeout(timer);
 			timer = setTimeout(async () => {
-				const text = await this.readText();
+				const text = await this.load().then(
+					(file) => file.text,
+					() => undefined,
+				);
 
 				if (text !== undefined && text === this.lastWritten) {
 					this.log.debug(`${this.name} event from our own write, ignoring`);
@@ -151,14 +130,24 @@ export class JsoncFile {
 		});
 	}
 
-	/** Current text of the file, or undefined if it can't be read. */
-	private async readText(): Promise<string | undefined> {
+	/** Raw text and modified time; `emptyText` and 0 if the file doesn't exist. */
+	private async load(): Promise<{ text: string; modifiedAt: number }> {
 		try {
-			return new TextDecoder().decode(
-				await vscode.workspace.fs.readFile(this.uri),
-			);
-		} catch {
-			return undefined;
+			const stat = await vscode.workspace.fs.stat(this.uri);
+			const bytes = await vscode.workspace.fs.readFile(this.uri);
+			return { text: new TextDecoder().decode(bytes), modifiedAt: stat.mtime };
+		} catch (error) {
+			if (
+				error instanceof vscode.FileSystemError &&
+				error.code === "FileNotFound"
+			) {
+				this.log.debug(
+					`${this.uri.fsPath} doesn't exist, using ${this.emptyText}`,
+				);
+				return { text: this.emptyText, modifiedAt: 0 };
+			}
+
+			throw new Error(`Reading ${this.name} failed: ${toError(error).message}`);
 		}
 	}
 }

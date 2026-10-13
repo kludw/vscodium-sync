@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
 
 const SCHEME = "vscodium-sync-diff";
+/** Diffs kept available for reopening; older ones are dropped so memory doesn't grow forever. */
+const KEEP_DIFFS = 20;
 
 /** Opens before/after text in the diff editor, served as read-only virtual documents. */
 export class DiffViewer implements vscode.Disposable {
@@ -25,6 +27,7 @@ export class DiffViewer implements vscode.Disposable {
 		const id = this.next++;
 		const left = this.add(`/${id}/before/${fileName}`, before);
 		const right = this.add(`/${id}/after/${fileName}`, after);
+		this.forget(id - KEEP_DIFFS);
 		await vscode.commands.executeCommand("vscode.diff", left, right, title);
 	}
 
@@ -36,5 +39,13 @@ export class DiffViewer implements vscode.Disposable {
 	private add(path: string, content: string): vscode.Uri {
 		this.documents.set(path, content);
 		return vscode.Uri.from({ scheme: SCHEME, path });
+	}
+
+	private forget(id: number): void {
+		for (const path of this.documents.keys()) {
+			if (path.startsWith(`/${id}/`)) {
+				this.documents.delete(path);
+			}
+		}
 	}
 }
