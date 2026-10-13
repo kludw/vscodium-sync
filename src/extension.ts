@@ -1,8 +1,10 @@
 import { CloudService } from "@services/cloud";
+import { ExtensionsService } from "@services/extensions";
 import { GistService } from "@services/gist";
 import { GitHubService, SignInRequiredError } from "@services/github";
+import { KeybindingsService } from "@services/keybindings";
 import { SettingsService } from "@services/settings";
-import { SyncService } from "@services/sync";
+import { type SyncChange, SyncService } from "@services/sync";
 import { DiffViewer } from "@util/diff";
 import { Logger } from "@util/log";
 import { SerialRunner } from "@util/runner";
@@ -21,29 +23,46 @@ const showError = (log: Logger, error: Error): void => {
 	vscode.window.showErrorMessage(message);
 };
 
-/** Tells the user what synced, with a button to see the diff. Not awaited by callers: the
+/** "a", "a and b", "a, b and c" */
+const listLabels = (labels: string[]): string =>
+	labels.length > 1
+		? `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)}`
+		: (labels[0] ?? "");
+
+/** Tells the user what synced, with a button to see the diffs. Not awaited by callers: the
  * notification can sit unanswered in the notification center indefinitely. */
 const notify = async (
 	diffViewer: DiffViewer,
-	direction: "push" | "pull",
-	before: string,
-	after: string,
+	changes: SyncChange[],
 ): Promise<void> => {
+	const labels = (direction: SyncChange["direction"]): string[] =>
+		changes
+			.filter((change) => change.direction === direction)
+			.map((change) => change.label);
+	const pushed = labels("push");
+	const pulled = labels("pull");
+	const parts = [
+		pushed.length > 0 ? `uploaded ${listLabels(pushed)} to the cloud` : "",
+		pulled.length > 0 ? `updated ${listLabels(pulled)} from the cloud` : "",
+	].filter(Boolean);
+
 	const action = await vscode.window.showInformationMessage(
-		direction === "push"
-			? "VSCodium Sync: uploaded your settings to the cloud."
-			: "VSCodium Sync: updated your settings from the cloud.",
-		"Show diff",
+		`VSCodium Sync: ${parts.join("; ")}.`,
+		changes.length > 1 ? "Show diffs" : "Show diff",
 	);
 
-	if (action === "Show diff") {
+	if (!action) {
+		return;
+	}
+
+	for (const change of changes) {
 		await diffViewer.show(
-			direction === "push"
-				? "Cloud settings (before ↔ after sync)"
-				: "settings.json (before ↔ after sync)",
-			"settings.json",
-			before,
-			after,
+			change.direction === "push"
+				? `Cloud ${change.label} (before ↔ after sync)`
+				: `${change.fileName} (before ↔ after sync)`,
+			change.fileName,
+			change.before,
+			change.after,
 		);
 	}
 };
@@ -99,13 +118,15 @@ const sync = async (
 		return;
 	}
 
-	const outcome = synced.value;
+	const { changes, errors } = synced.value;
 
-	if (outcome.direction === "none") {
-		return;
+	if (errors.length > 0) {
+		showError(log, new Error(errors.map((error) => error.message).join("; ")));
 	}
 
-	void notify(diffViewer, outcome.direction, outcome.before, outcome.after);
+	if (changes.length > 0) {
+		void notify(diffViewer, changes);
+	}
 };
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -121,13 +142,21 @@ export function activate(context: vscode.ExtensionContext): void {
 
 	const githubService = new GitHubService(log.scoped("GitHub"));
 	const gistService = new GistService(githubService, log.scoped("Gist"));
-	const settingsService = new SettingsService(userDir, log.scoped("Settings"));
+	const items = [
+		new SettingsService(userDir, log.scoped("Settings")),
+		new KeybindingsService(userDir, log.scoped("Keybindings")),
+		new ExtensionsService(
+			context.extension.id,
+			context.globalState,
+			log.scoped("Extensions"),
+		),
+	];
 	const services: Services = {
 		githubService,
 		gistService,
 		syncService: new SyncService(
 			gistService,
-			settingsService,
+			items,
 			context.globalState,
 			log.scoped("Sync"),
 		),
@@ -146,7 +175,7 @@ export function activate(context: vscode.ExtensionContext): void {
 	);
 
 	context.subscriptions.push(
-		settingsService.watch(() => runner.run()),
+		...items.map((item) => item.watch(() => runner.run())),
 		new CloudService(gistService, log.scoped("Cloud"), () => runner.run()),
 	);
 

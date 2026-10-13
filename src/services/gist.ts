@@ -1,9 +1,12 @@
+import type { ExtensionList } from "@services/extensions";
 import {
 	GitHubRequestError,
 	type GitHubService,
 	SignInRequiredError,
 } from "@services/github";
+import type { Keybindings } from "@services/keybindings";
 import type { Settings } from "@services/settings";
+import { toSortedJson } from "@util/json";
 import type { Logger } from "@util/log";
 import { type Result, toError } from "@util/result";
 
@@ -24,9 +27,11 @@ export type Gist = {
 	files: Record<string, GistFile>;
 };
 
-/** What gets synced. Stored as JSON in the gist's {@link FILE_NAME} file. */
+/** What gets synced, keyed by item (settings, keybindings, ...). Stored as JSON in the gist's {@link FILE_NAME}. */
 export type SyncData = {
 	settings: Settings;
+	extensions: ExtensionList;
+	keybindings: Keybindings;
 };
 
 export type ChangeCheck = {
@@ -138,12 +143,12 @@ export class GistService {
 		}
 	}
 
-	/** Parses the gist's data file. `undefined` if it holds no data yet (the placeholder of a new gist). */
-	readData(gist: Gist): Result<SyncData | undefined> {
+	/** Parses the gist's data file. Empty if it holds no data yet (the placeholder of a new gist). */
+	readData(gist: Gist): Result<Partial<SyncData>> {
 		const file = gist.files[FILE_NAME];
 
 		if (!file?.content) {
-			return { value: undefined };
+			return { value: {} };
 		}
 
 		if (file.truncated) {
@@ -151,8 +156,15 @@ export class GistService {
 		}
 
 		try {
-			const data = JSON.parse(file.content) as Partial<SyncData>;
-			return { value: data.settings ? { settings: data.settings } : undefined };
+			const data: unknown = JSON.parse(file.content);
+
+			if (typeof data !== "object" || data === null || Array.isArray(data)) {
+				return {
+					error: new Error(`${FILE_NAME} in the gist must contain an object`),
+				};
+			}
+
+			return { value: data as Partial<SyncData> };
 		} catch (error) {
 			this.log.error(`Parsing ${FILE_NAME} in gist ${gist.id} failed:`, error);
 			return { error: new Error(`${FILE_NAME} in the gist is invalid JSON`) };
@@ -160,8 +172,9 @@ export class GistService {
 	}
 
 	/** Overwrites the gist's data file with `data`. Skips the request if the content is already identical. */
-	async write(gist: Gist, data: SyncData): Promise<Result<Gist>> {
-		const content = `${JSON.stringify(data, null, 2)}\n`;
+	/** Writes `data` with keys sorted alphabetically at every level (arrays keep their order). */
+	async write(gist: Gist, data: Partial<SyncData>): Promise<Result<Gist>> {
+		const content = toSortedJson(data);
 
 		if (gist.files[FILE_NAME]?.content === content) {
 			this.log.info(`Gist ${gist.id} already up to date`);
