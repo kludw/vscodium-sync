@@ -4,10 +4,11 @@
 		"target": "ESNext",
 		"module": "Preserve",
 		"moduleResolution": "bundler",
-		"types": ["vscode"],
+		"types": ["vscode", "node"],
 		"rootDir": "./src",
 		"paths": {
-			"@/*": ["./src/*"]
+			"@services/*": ["./src/services/*"],
+			"@util/*": ["./src/util/*"]
 		},
 		"noEmit": true,
 		"strict": true,
